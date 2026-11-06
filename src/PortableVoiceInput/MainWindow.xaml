@@ -1,0 +1,159 @@
+<Window x:Class="PortableVoiceInput.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:PortableVoiceInput"
+        Title="{DynamicResource AppTitle}" Width="600" Height="600" ResizeMode="CanMinimize" Icon="/Assets/app.ico"
+        FontFamily="Segoe UI" FontSize="12"
+        Background="{StaticResource BackgroundBrush}" TextElement.Foreground="{StaticResource TextBrush}"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="True" Closing="Window_Closing">
+    <Grid Margin="10">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid Margin="0,0,0,8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="{DynamicResource AppTitle}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock x:Name="StatusText" Text="{DynamicResource Ready}" Foreground="{StaticResource MutedBrush}"
+                           VerticalAlignment="Center" Margin="0,0,8,0" MaxWidth="200" TextTrimming="CharacterEllipsis"/>
+                <Button x:Name="RecordButton" Content="{DynamicResource RecordNow}" Background="#5856A7" Click="RecordButton_Click"/>
+            </StackPanel>
+        </Grid>
+        <TabControl Grid.Row="1" x:Name="Tabs" SelectionChanged="Tabs_SelectionChanged">
+            <TabItem Header="{DynamicResource GeneralTab}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <Grid Margin="0,0,4,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="{DynamicResource LanguageLabel}" ToolTip="{DynamicResource LanguageHint}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <ComboBox x:Name="LanguageBox" Grid.Row="0" Grid.Column="1" Width="120" HorizontalAlignment="Left" Margin="0,0,0,4" SelectionChanged="LanguageBox_SelectionChanged" ToolTip="{DynamicResource LanguageHint}">
+                            <ComboBoxItem Tag="en"><TextBlock Text="English" Foreground="#1D2430"/></ComboBoxItem>
+                            <ComboBoxItem Tag="ja"><TextBlock Text="日本語" Foreground="#1D2430"/></ComboBoxItem>
+                        </ComboBox>
+                        <TextBlock Grid.Row="1" Text="{DynamicResource ApiLabel}" ToolTip="{DynamicResource ApiHint}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,4">
+                            <PasswordBox x:Name="ApiKeyBox" Width="245" ToolTip="{DynamicResource ApiHint}" PasswordChanged="ApiKeyBox_PasswordChanged"/>
+                            <Button Content="×" Width="27" Padding="0" Margin="4,0,0,0" ToolTip="{DynamicResource ClearKey}" Click="ClearKey_Click"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="2" Text="{DynamicResource TranscriptionModel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,4">
+                            <ComboBox x:Name="TranscriptionModelBox" Width="210"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Foreground="#1D2430"/></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                            <Button Content="{DynamicResource RefreshModels}" Margin="5,0,0,0" Click="RefreshModels_Click"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="3" Text="{DynamicResource CleanupModel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <ComboBox x:Name="CleanupModelBox" Grid.Row="3" Grid.Column="1" Width="210" HorizontalAlignment="Left" Margin="0,0,0,4"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Foreground="#1D2430"/></DataTemplate></ComboBox.ItemTemplate></ComboBox>
+                        <TextBlock Grid.Row="4" Text="{DynamicResource MicLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <ComboBox x:Name="MicrophoneBox" Grid.Row="4" Grid.Column="1" Width="280" HorizontalAlignment="Left" Margin="0,0,0,4"
+                                  ToolTip="{Binding SelectedItem, RelativeSource={RelativeSource Self}}"/>
+                        <TextBlock Grid.Row="5" Text="{DynamicResource ShortcutLabel}" ToolTip="{DynamicResource ShortcutHint}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,4">
+                            <Border Background="#30364A" BorderBrush="#525A6A" BorderThickness="1" Padding="7,3" Margin="0,0,6,0">
+                                <TextBlock x:Name="ShortcutText" VerticalAlignment="Center"/>
+                            </Border>
+                            <Button x:Name="SetShortcutButton" Content="{DynamicResource SetShortcut}" Click="SetShortcut_Click" PreviewKeyDown="Shortcut_PreviewKeyDown" LostKeyboardFocus="SetShortcutButton_LostKeyboardFocus"/>
+                        </StackPanel>
+                        <StackPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,4,0,5">
+                            <CheckBox x:Name="DimCheck" Content="{DynamicResource DimLabel}" ToolTip="{DynamicResource DimHint}"/>
+                            <CheckBox x:Name="SoundCheck" Content="{DynamicResource SoundLabel}"/>
+                        </StackPanel>
+                        <TextBlock Grid.Row="7" Text="{DynamicResource TriggerLabel}" ToolTip="{DynamicResource TriggerHint}" VerticalAlignment="Top" Margin="0,7,8,4"/>
+                        <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,4,0,5" HorizontalAlignment="Left" Width="350">
+                            <WrapPanel x:Name="TriggerTags"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                <TextBox x:Name="TriggerInput" Width="190" KeyDown="TriggerInput_KeyDown" ToolTip="{DynamicResource TriggerHint}"/>
+                                <Button Content="{DynamicResource AddTrigger}" Margin="5,0,0,0" Click="AddTrigger_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Grid.Row="8" Text="{DynamicResource PromptLabel}" ToolTip="{DynamicResource PromptHint}" VerticalAlignment="Top" Margin="0,4,8,0"/>
+                        <TextBox x:Name="PromptBox" Grid.Row="8" Grid.Column="1" Width="350" Height="88" HorizontalAlignment="Left"
+                                 AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" ToolTip="{DynamicResource PromptHint}"/>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem x:Name="AudioTabItem" Header="{DynamicResource AudioTab}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <CheckBox x:Name="TrimCheck" Content="{DynamicResource TrimLabel}" FontWeight="SemiBold"/>
+                        <Grid Margin="20,8,0,8" HorizontalAlignment="Left">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="{DynamicResource ThresholdLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                            <local:NumericUpDown x:Name="ThresholdBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Minimum="-90" Maximum="0" Step="1"/>
+                            <TextBlock Grid.Row="1" Text="{DynamicResource MinimumLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                            <local:NumericUpDown x:Name="MinimumBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4" Minimum="0.1" Maximum="120" Step="0.1"/>
+                            <TextBlock Grid.Row="2" Text="{DynamicResource GapLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
+                            <local:NumericUpDown x:Name="GapBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,4" Minimum="0" Maximum="10" Step="0.1"/>
+                            <TextBlock Grid.Row="3" Text="{DynamicResource MarginLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <local:NumericUpDown x:Name="MarginBox" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="30" Step="1"/>
+                        </Grid>
+                        <Separator Margin="0,2,0,8" Background="#525A6A"/>
+                        <TextBlock Text="{DynamicResource CalibrateHint}" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,6"/>
+                        <WrapPanel>
+                            <Button x:Name="CalibrateButton" Content="{DynamicResource Calibrate}" Click="Calibrate_Click"/>
+                            <TextBlock x:Name="CalibrationText" Margin="8,3,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/>
+                        </WrapPanel>
+                        <Separator Margin="0,10,0,8" Background="#525A6A"/>
+                        <TextBlock Text="{DynamicResource PreviewTitle}" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="PreviewStatus" Foreground="{StaticResource MutedBrush}" Margin="0,3,0,5"/>
+                        <Border Background="#171A24" BorderBrush="#444D60" BorderThickness="1" Padding="4" Height="96">
+                            <local:SilencePreviewGraph x:Name="PreviewGraph"/>
+                        </Border>
+                        <TextBlock Text="{DynamicResource PreviewLegend}" Foreground="{StaticResource MutedBrush}" Margin="0,5,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="{DynamicResource RecordingsTab}">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,6">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button Content="{DynamicResource OpenFolder}" Click="OpenFolder_Click" Margin="0,0,5,0"/>
+                            <Button Content="{DynamicResource Refresh}" Click="Refresh_Click"/>
+                        </StackPanel>
+                        <TextBlock Text="{DynamicResource RecordingsHint}" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    </DockPanel>
+                    <DataGrid x:Name="RecordingsGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" SelectionChanged="RecordingsGrid_SelectionChanged"
+                              Background="#202431" Foreground="#F1F2F6" RowBackground="#252A38" AlternatingRowBackground="#292E3E" GridLinesVisibility="None" BorderThickness="0" HeadersVisibility="Column">
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader"><Setter Property="Background" Value="#343A4D"/><Setter Property="Foreground" Value="#F1F2F6"/><Setter Property="Padding" Value="5,3"/></Style>
+                        </DataGrid.ColumnHeaderStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn x:Name="CreatedHeader" Header="{DynamicResource CreatedColumn}" Binding="{Binding Created}" Width="145"/>
+                            <DataGridTextColumn x:Name="DurationHeader" Header="{DynamicResource DurationColumn}" Binding="{Binding Duration}" Width="60"/>
+                            <DataGridTextColumn x:Name="StatusHeader" Header="{DynamicResource StatusColumn}" Binding="{Binding Status}" Width="85"/>
+                            <DataGridTextColumn x:Name="FileHeader" Header="{DynamicResource FileColumn}" Binding="{Binding FileName}" Width="*" MinWidth="120"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="2" Text="{DynamicResource ResultLabel}" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                    <TextBox x:Name="ResultBox" Grid.Row="3" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+                    <Grid Grid.Row="4" Margin="0,7,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="PlaybackElapsed" Text="0:00" VerticalAlignment="Center"/>
+                        <Slider x:Name="PlaybackSlider" Grid.Column="1" Margin="8,0" Minimum="0" Maximum="1" ValueChanged="PlaybackSlider_ValueChanged"/>
+                        <TextBlock x:Name="PlaybackDuration" Grid.Column="2" Text="0:00" VerticalAlignment="Center"/>
+                    </Grid>
+                    <WrapPanel Grid.Row="5" Margin="0,5,0,0">
+                        <Button Content="{DynamicResource Retry}" Click="Retry_Click" Margin="0,0,5,4"/>
+                        <Button Content="{DynamicResource Copy}" Click="Copy_Click" Margin="0,0,5,4"/>
+                        <Button Content="{DynamicResource Play}" Click="Play_Click" Margin="0,0,5,4"/>
+                        <Button Content="{DynamicResource Pause}" Click="Pause_Click" Margin="0,0,5,4"/>
+                        <Button Content="{DynamicResource Stop}" Click="Stop_Click" Margin="0,0,5,4"/>
+                        <Button Content="{DynamicResource Rewind}" Click="Rewind_Click" Margin="0,0,5,4"/>
+                        <Button Content="{DynamicResource Delete}" Click="Delete_Click" Margin="0,0,5,4"/>
+                    </WrapPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <Grid Grid.Row="2" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Button x:Name="ResetTabButton" Content="{DynamicResource ResetTab}" Click="ResetTab_Click" Margin="0,0,8,0"/>
+            <TextBlock x:Name="FooterText" Grid.Column="1" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Button Content="{DynamicResource Close}" Click="Close_Click" Margin="0,0,6,0"/>
+                <Button Content="{DynamicResource Save}" Click="Save_Click" Background="#6865BF"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

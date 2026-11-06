@@ -1,0 +1,30 @@
+# Local builds and editor state
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.pdb
+
+# Portable app data and secrets
+config.ini*
+**/config.ini*
+recordings/
+**/recordings/
+working/
+**/working/
+.env
+.env.*
+*.key
+*.pem
+
+# Do not accidentally publish recorded audio or local release artifacts.
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.exe
+*.zip
+!test-audio/english.wav
+!test-audio/japanese.wav
