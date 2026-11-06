@@ -6,7 +6,7 @@ internal static class Loc
 {
     private static readonly Dictionary<string, (string En, string Ja)> Terms = new()
     {
-        ["AppTitle"] = ("VoicePaste", "VoicePaste"),
+        ["AppTitle"] = ("OneTalk Text", "OneTalk Text"),
         ["Subtitle"] = ("Record locally. Transcribe once. Paste anywhere.", "録音して、まとめて文字起こし。いつもの入力欄へ。"),
         ["GeneralTab"] = ("General", "基本設定"), ["AudioTab"] = ("Audio & silence", "音声と無音"), ["RecordingsTab"] = ("Recordings", "録音一覧"),
         ["LanguageLabel"] = ("Language", "言語"),
@@ -62,7 +62,7 @@ internal static class Loc
         ["SaveFailed"] = ("Could not save settings. Check the app folder permissions.", "設定を保存できませんでした。アプリのフォルダに書き込めるか確認してください。"),
         ["DeleteConfirm"] = ("Permanently delete this recording and its transcript?", "この録音と文字起こしを完全に削除しますか？"),
         ["DeleteTitle"] = ("Delete recording", "録音を削除"),
-        ["ErrorTitle"] = ("VoicePaste", "VoicePaste"),
+        ["ErrorTitle"] = ("OneTalk Text", "OneTalk Text"),
         ["RetryStatus"] = ("Preparing transcription…", "文字起こしを準備中…"),
         ["SettingsSaved"] = ("Settings saved.", "設定を保存しました。"),
         ["InvalidNumber"] = ("Check the numeric audio settings.", "音声設定の数値を確認してください。"),

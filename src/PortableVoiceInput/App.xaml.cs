@@ -46,7 +46,7 @@ public partial class App : System.Windows.Application
             }
             catch (WaitHandleCannotBeOpenedException)
             {
-                System.Windows.MessageBox.Show("VoicePaste is already starting or running in the notification area.");
+                System.Windows.MessageBox.Show("OneTalk Text is already starting or running in the notification area.");
             }
             Shutdown(); return;
         }
@@ -74,7 +74,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            System.Windows.MessageBox.Show("VoicePaste could not access its app folder. " + ex.Message);
+            System.Windows.MessageBox.Show("OneTalk Text could not access its app folder. " + ex.Message);
             Shutdown();
         }
     }
@@ -113,7 +113,7 @@ public partial class App : System.Windows.Application
 
     private void CreateTray()
     {
-        _tray = new Forms.NotifyIcon { Icon = new System.Drawing.Icon(System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"))!.Stream), Text = "VoicePaste", Visible = true };
+        _tray = new Forms.NotifyIcon { Icon = new System.Drawing.Icon(System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"))!.Stream), Text = "OneTalk Text", Visible = true };
         _tray.DoubleClick += (_, _) => ShowSettings();
         UpdateTrayMenu();
     }

@@ -1,10 +1,10 @@
-# VoicePaste
+# OneTalk Text
 
 話した内容を録音し、話し終えてからまとめて文字起こし・貼り付けする Windows 向けの音声入力アプリです。OpenAI API を使用します。
 
-[最新版をダウンロード](https://github.com/amano0406/VoicePaste/releases/latest) · [English](README.en.md)
+[最新版をダウンロード](https://github.com/amano0406/OneTalkText/releases/latest) · [English](README.en.md)
 
-![VoicePaste の設定画面](docs/settings-ja.png)
+![OneTalk Text の設定画面](docs/settings-ja.png)
 
 ## できること
 
@@ -25,8 +25,8 @@
 
 ## はじめかた
 
-1. [Releases](https://github.com/amano0406/VoicePaste/releases/latest) から `VoicePaste-windows-x64.zip` をダウンロードして展開します。`VoicePaste.exe` 単体もダウンロードできます。
-2. 書き込み可能なフォルダに置き、`VoicePaste.exe` を起動します。通知領域のアイコンを右クリックして **Settings** を選ぶか、実行ファイルをもう一度開くと設定画面が表示されます。
+1. [Releases](https://github.com/amano0406/OneTalkText/releases/latest) から `OneTalkText-windows-x64.zip` をダウンロードして展開します。`OneTalkText.exe` 単体もダウンロードできます。
+2. 書き込み可能なフォルダに置き、`OneTalkText.exe` を起動します。通知領域のアイコンを右クリックして **Settings** を選ぶか、実行ファイルをもう一度開くと設定画面が表示されます。
 3. 日本語で使う場合は **Language** で **日本語** を選びます。**OpenAI APIキー** を入力し、必要に応じてマイクやショートカットを変更して **設定を保存** を押します。
 4. 入力したい欄を選び、既定の **Ctrl + Shift + Space** で録音を開始します。話し終えたら同じキーをもう一度押してください。
 
@@ -42,10 +42,10 @@
 
 ## ソースからビルド
 
-Windows の [.NET 10 SDK](https://learn.microsoft.com/en-us/dotnet/core/install/windows) を使用します。`VoicePaste.sln` は Visual Studio でも開けます。
+Windows の [.NET 10 SDK](https://learn.microsoft.com/en-us/dotnet/core/install/windows) を使用します。`OneTalkText.sln` は Visual Studio でも開けます。
 
 ```powershell
-dotnet build VoicePaste.sln -c Release
+dotnet build OneTalkText.sln -c Release
 dotnet test tests/PortableVoiceInput.Tests/PortableVoiceInput.Tests.csproj -c Release
 ```
 

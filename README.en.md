@@ -1,10 +1,10 @@
-# VoicePaste
+# OneTalk Text
 
-VoicePaste is a portable Windows dictation app. Record with a shortcut, then transcribe and paste the completed text using the OpenAI API.
+OneTalk Text is a portable Windows dictation app. Record with a shortcut, then transcribe and paste the completed text using the OpenAI API.
 
-[Download the latest release](https://github.com/amano0406/VoicePaste/releases/latest) · [日本語](README.md)
+[Download the latest release](https://github.com/amano0406/OneTalkText/releases/latest) · [日本語](README.md)
 
-![VoicePaste settings in Japanese](docs/settings-ja.png)
+![OneTalk Text settings in Japanese](docs/settings-ja.png)
 
 ## Features
 
@@ -22,7 +22,7 @@ Use Windows x64, a microphone, an internet connection, and an OpenAI API key. Th
 
 The standalone executable extracts part of its runtime to a Windows temporary folder; settings and recordings stay beside the app.
 
-Download `VoicePaste-windows-x64.zip` from [Releases](https://github.com/amano0406/VoicePaste/releases/latest) and extract it to a writable folder. You can also download the standalone `VoicePaste.exe`. Launch the app, then right-click its notification-area icon and choose **Settings**; launching the executable again also opens settings. Enter your OpenAI API key and save. Press **Ctrl + Shift + Space** to start recording and press it again to stop.
+Download `OneTalkText-windows-x64.zip` from [Releases](https://github.com/amano0406/OneTalkText/releases/latest) and extract it to a writable folder. You can also download the standalone `OneTalkText.exe`. Launch the app, then right-click its notification-area icon and choose **Settings**; launching the executable again also opens settings. Enter your OpenAI API key and save. Press **Ctrl + Shift + Space** to start recording and press it again to stop.
 
 ## Data and costs
 
@@ -33,7 +33,7 @@ Original WAV files and transcription metadata stay in the app's `recordings` fol
 On Windows with the .NET 10 SDK:
 
 ```powershell
-dotnet build VoicePaste.sln -c Release
+dotnet build OneTalkText.sln -c Release
 dotnet test tests/PortableVoiceInput.Tests/PortableVoiceInput.Tests.csproj -c Release
 ```
 
