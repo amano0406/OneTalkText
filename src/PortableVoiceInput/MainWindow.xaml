@@ -76,11 +76,13 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel>
                         <CheckBox x:Name="TrimCheck" Content="{DynamicResource TrimLabel}" FontWeight="SemiBold"/>
+                        <CheckBox x:Name="AutoThresholdCheck" Content="{DynamicResource AutoThresholdLabel}" ToolTip="{DynamicResource AutoThresholdHint}"
+                                  Margin="20,5,0,0" Checked="AutoThreshold_Changed" Unchecked="AutoThreshold_Changed"/>
                         <Grid Margin="20,8,0,8" HorizontalAlignment="Left">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="{DynamicResource ThresholdLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
-                            <local:NumericUpDown x:Name="ThresholdBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Minimum="-90" Maximum="0" Step="1"/>
+                            <local:NumericUpDown x:Name="ThresholdBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4" Minimum="-90" Maximum="0" Step="1" ToolTip="{DynamicResource AutoThresholdHint}"/>
                             <TextBlock Grid.Row="1" Text="{DynamicResource MinimumLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>
                             <local:NumericUpDown x:Name="MinimumBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,4" Minimum="0.1" Maximum="120" Step="0.1"/>
                             <TextBlock Grid.Row="2" Text="{DynamicResource GapLabel}" VerticalAlignment="Center" Margin="0,0,8,4"/>

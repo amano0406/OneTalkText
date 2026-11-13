@@ -13,7 +13,7 @@ public sealed class RecordingTests
         {
             ApiKey = "sk-test", Language = "ja", MicrophoneName = "chosen mic", HotkeyKey = 65,
             TriggerWords = "custom trigger", CleanupPrompt = "custom prompt", SilenceThresholdDb = -61,
-            MinimumSilenceSeconds = 4, RemainingGapSeconds = 3, NoiseMarginDb = 8, TrimSilence = false, WaveformLeft = 200
+            MinimumSilenceSeconds = 4, RemainingGapSeconds = 3, NoiseMarginDb = 8, TrimSilence = false, AutoSilenceThreshold = false, WaveformLeft = 200
         };
         settings.ResetGeneral();
         Assert.Equal("sk-test", settings.ApiKey);
@@ -26,6 +26,7 @@ public sealed class RecordingTests
         Assert.Equal(-61, settings.SilenceThresholdDb);
         Assert.Equal(4, settings.MinimumSilenceSeconds);
         Assert.False(settings.TrimSilence);
+        Assert.False(settings.AutoSilenceThreshold);
         Assert.Equal(200, settings.WaveformLeft);
 
         settings.Language = "ja"; settings.CleanupPrompt = "custom prompt";
@@ -39,6 +40,7 @@ public sealed class RecordingTests
         Assert.Equal(defaults.RemainingGapSeconds, settings.RemainingGapSeconds);
         Assert.Equal(defaults.NoiseMarginDb, settings.NoiseMarginDb);
         Assert.Equal(defaults.TrimSilence, settings.TrimSilence);
+        Assert.Equal(defaults.AutoSilenceThreshold, settings.AutoSilenceThreshold);
         Assert.Equal(200, settings.WaveformLeft);
     }
 
@@ -55,6 +57,21 @@ public sealed class RecordingTests
         var custom = store.Load();
         Assert.Equal("custom prompt", custom.CleanupPrompt);
         Assert.Equal("sk-test", custom.ApiKey);
+    }
+
+    [Fact]
+    public void AutomaticThresholdIsEnabledForExistingConfigsAndCanBeTurnedOff()
+    {
+        using var workspace = new TestWorkspace();
+        var store = new ConfigStore(workspace.File("settings"));
+        Directory.CreateDirectory(Path.GetDirectoryName(store.Path)!);
+        File.WriteAllText(store.Path, "TRIM_SILENCE=True\nSILENCE_THRESHOLD_DB=-50\n");
+        Assert.True(store.Load().AutoSilenceThreshold);
+        var manual = store.Load();
+        manual.AutoSilenceThreshold = false;
+        store.Save(manual);
+        Assert.False(store.Load().AutoSilenceThreshold);
+        Assert.Equal(-50, store.Load().SilenceThresholdDb);
     }
 
     [Fact]
@@ -145,6 +162,121 @@ public sealed class RecordingTests
         Assert.False(result.IsDigitalSilence);
         Assert.Equal(result.Wave.DataLength, Assert.Single(result.Ranges).LengthBytes);
         Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public void HalfSecondCalibrationTracksInputGainAndIgnoresABriefClick()
+    {
+        var quiet = Signal(8000, 0.001);
+        var withClick = quiet.ToArray();
+        Signal(320, 0.5).CopyTo(withClick, 320 * 2 * 7);
+        var calibration = new NoiseCalibrationAccumulator();
+        Assert.Null(calibration.Add(withClick.AsSpan(0, 10000), 6));
+        var result = calibration.Add(withClick.AsSpan(10000), 6);
+        Assert.NotNull(result);
+        Assert.True(result.IsReliable);
+        Assert.InRange(result.NoiseDb, -64, -62);
+        Assert.Equal(result.NoiseDb + 6, result.ThresholdDb, 6);
+        var louder = new NoiseCalibrationAccumulator().Add(Signal(8000, 0.01), 6);
+        Assert.NotNull(louder);
+        Assert.InRange(louder.NoiseDb - result.NoiseDb, 19, 21);
+    }
+
+    [Fact]
+    public void UnstableOrVeryLoudPreparationIsNotTrusted()
+    {
+        var sample = Signal(4000, 0.001).Concat(Signal(4000, 0.1)).ToArray();
+        var unstable = new NoiseCalibrationAccumulator().Add(sample, 6);
+        var loud = new NoiseCalibrationAccumulator().Add(Signal(8000, 0.5), 6);
+        Assert.NotNull(unstable);
+        Assert.NotNull(loud);
+        Assert.False(unstable.IsReliable);
+        Assert.False(loud.IsReliable);
+    }
+
+    [Fact]
+    public void WaveformUsesTheMeasuredNoiseFloorOnlyForDisplay()
+    {
+        Assert.Equal(0, WaveformLevel.FromDecibels(-60, -60));
+        Assert.Equal(0, WaveformLevel.FromDecibels(-58, -60));
+        Assert.True(WaveformLevel.FromDecibels(-50, -60) > 0);
+        Assert.True(WaveformLevel.FromDecibels(-35, -60) > WaveformLevel.FromDecibels(-50, -60));
+        Assert.InRange(WaveformLevel.FromDecibels(0, -60), 0, 1);
+    }
+
+    [Fact]
+    public void PreparationAudioIsIncludedWhenLeadingSilenceIsShortened()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("preparation.wav");
+        var beginning = Signal(8000, 0.001);
+        using (var writer = new DurableWaveWriter(path))
+        {
+            writer.Write(beginning);
+            writer.Write(new byte[16000 * 2 * 5]);
+            writer.Write(Signal(16000, 0.4));
+        }
+        var original = ReadAudio(path);
+        var settings = new AppSettings { SilenceThresholdDb = -45, MinimumSilenceSeconds = 2 };
+        var analysis = SilenceProcessor.Analyze(path, settings, protectedStartSeconds: 0.5);
+        var chunk = Assert.Single(SilenceProcessor.CreateChunks(path, analysis, workspace.File("chunks")));
+        var sent = ReadAudio(chunk);
+        Assert.Equal(beginning, sent[..beginning.Length]);
+        Assert.True(sent.Length < original.Length);
+        Assert.Equal(original, ReadAudio(path));
+    }
+
+    [Fact]
+    public async Task RetryReusesTheRecordedCalibrationEvenWhenTheCurrentManualThresholdChanges()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("calibrated.wav");
+        using (var writer = new DurableWaveWriter(path))
+        {
+            writer.Write(Signal(16000, 0.4));
+            writer.Write(Signal(16000 * 5, 0.001));
+            writer.Write(Signal(16000, 0.4));
+        }
+        var original = ReadAudio(path);
+        WaveMetadata.Write(path, new RecordingMetadata
+        {
+            CalibrationReliable = true, CalibratedNoiseDb = -63,
+            CalibratedThresholdDb = -57, ProtectedStartSeconds = 0.5
+        });
+        var settings = new AppSettings { ApiKey = "sk-test", SilenceThresholdDb = -90, AutoSilenceThreshold = true };
+        var handler = new ScriptedHandler([HttpStatusCode.OK], "completed");
+        var processor = new RecordingProcessor(new OpenAiClient(new HttpClient(handler)), workspace.File("work"));
+        var first = await processor.ProcessAsync(path, settings);
+        Assert.InRange(first.Metadata.SentSeconds, 2.9, 3.1);
+        Assert.Equal(1, handler.CallCount);
+        settings.SilenceThresholdDb = -10;
+        var second = await processor.ProcessAsync(path, settings);
+        Assert.Equal(first.Metadata.ProcessingSignature, second.Metadata.ProcessingSignature);
+        Assert.Equal(1, handler.CallCount); // already-completed chunk is not uploaded again
+        Assert.Equal(original, ReadAudio(path));
+    }
+
+    [Fact]
+    public async Task UnreliableCalibrationKeepsTheWholeAudioAndManualModeStillWorks()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("unstable.wav");
+        using (var writer = new DurableWaveWriter(path))
+        {
+            writer.Write(Signal(16000, 0.4));
+            writer.Write(new byte[16000 * 2 * 5]);
+            writer.Write(Signal(16000, 0.4));
+        }
+        WaveMetadata.Write(path, new RecordingMetadata { CalibrationReliable = false, ProtectedStartSeconds = 0.5 });
+        var handler = new ScriptedHandler([HttpStatusCode.OK, HttpStatusCode.OK]);
+        var processor = new RecordingProcessor(new OpenAiClient(new HttpClient(handler)), workspace.File("work"));
+        var settings = new AppSettings { ApiKey = "sk-test", SilenceThresholdDb = -45, AutoSilenceThreshold = true };
+        var safe = await processor.ProcessAsync(path, settings);
+        Assert.Equal(safe.Metadata.OriginalSeconds, safe.Metadata.SentSeconds, 3);
+        settings.AutoSilenceThreshold = false;
+        var manual = await processor.ProcessAsync(path, settings);
+        Assert.InRange(manual.Metadata.SentSeconds, 2.9, 3.1);
+        Assert.Equal(2, handler.CallCount);
     }
 
     [Fact]

@@ -71,6 +71,8 @@ public partial class MainWindow : Window
         _triggers.Clear(); _triggers.AddRange(_draft.TriggerWords.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         RenderTriggers(); PromptBox.Text = _draft.CleanupPrompt;
         TrimCheck.IsChecked = _draft.TrimSilence;
+        AutoThresholdCheck.IsChecked = _draft.AutoSilenceThreshold;
+        UpdateAutoThresholdControl();
         ThresholdBox.Text = _draft.SilenceThresholdDb.ToString("0.##", CultureInfo.InvariantCulture);
         MinimumBox.Text = _draft.MinimumSilenceSeconds.ToString("0.##", CultureInfo.InvariantCulture);
         GapBox.Text = _draft.RemainingGapSeconds.ToString("0.##", CultureInfo.InvariantCulture);
@@ -257,6 +259,8 @@ public partial class MainWindow : Window
         {
             _draft.ResetAudio();
             TrimCheck.IsChecked = _draft.TrimSilence;
+            AutoThresholdCheck.IsChecked = _draft.AutoSilenceThreshold;
+            UpdateAutoThresholdControl();
             ThresholdBox.Text = _draft.SilenceThresholdDb.ToString("0.##", CultureInfo.InvariantCulture);
             MinimumBox.Text = _draft.MinimumSilenceSeconds.ToString("0.##", CultureInfo.InvariantCulture);
             GapBox.Text = _draft.RemainingGapSeconds.ToString("0.##", CultureInfo.InvariantCulture);
@@ -271,6 +275,13 @@ public partial class MainWindow : Window
     {
         _previewTimer.Stop();
         if (_preview is not null) { _preview.Dispose(); _preview = null; }
+    }
+
+    private void AutoThreshold_Changed(object sender, RoutedEventArgs e) => UpdateAutoThresholdControl();
+    private void UpdateAutoThresholdControl()
+    {
+        if (ThresholdBox is not null && AutoThresholdCheck is not null)
+            ThresholdBox.IsEnabled = AutoThresholdCheck.IsChecked != true;
     }
     public void ResumeAudioPreview()
     {
@@ -320,7 +331,7 @@ public partial class MainWindow : Window
         _draft.MicrophoneName = MicrophoneBox.SelectedItem is MicrophoneOption { DeviceNumber: not -1 } mic ? mic.Name : "";
         _draft.DimScreen = DimCheck.IsChecked == true; _draft.PlaySounds = SoundCheck.IsChecked == true;
         AddPendingTrigger(); _draft.TriggerWords = string.Join("\n", _triggers); _draft.CleanupPrompt = PromptBox.Text;
-        _draft.TrimSilence = TrimCheck.IsChecked == true; _draft.SilenceThresholdDb = threshold;
+        _draft.TrimSilence = TrimCheck.IsChecked == true; _draft.AutoSilenceThreshold = AutoThresholdCheck.IsChecked == true; _draft.SilenceThresholdDb = threshold;
         _draft.MinimumSilenceSeconds = minimum; _draft.RemainingGapSeconds = gap; _draft.NoiseMarginDb = margin;
         return true;
     }
@@ -364,7 +375,7 @@ public partial class MainWindow : Window
     public void SetState(bool recording, bool processing, string? detail)
     {
         if (!IsInitialized) return;
-        StatusText.Text = detail ?? (recording ? T("Recording") : processing ? T("Processing") : T("Ready"));
+        StatusText.Text = detail ?? (_app.IsPreparing ? T("PreparingRecording") : recording ? T("Recording") : processing ? T("Processing") : T("Ready"));
         RecordButton.Content = T(recording ? "StopNow" : "RecordNow");
     }
 

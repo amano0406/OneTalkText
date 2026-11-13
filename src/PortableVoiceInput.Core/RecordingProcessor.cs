@@ -36,6 +36,14 @@ public sealed class RecordingProcessor(OpenAiClient api, string workingFolder)
     public async Task<ProcessResult> ProcessAsync(string path, AppSettings settings, Action<string>? progress = null, CancellationToken cancellationToken = default)
     {
         var (_, metadata) = WaveMetadata.Read(path);
+        var analysisSettings = settings.Copy();
+        if (settings.AutoSilenceThreshold && metadata.CalibrationReliable is bool reliable)
+        {
+            if (reliable && metadata.CalibratedThresholdDb is double threshold && double.IsFinite(threshold))
+                analysisSettings.SilenceThresholdDb = Math.Clamp(threshold, -90, 0);
+            else analysisSettings.TrimSilence = false;
+        }
+        var protectedStart = double.IsFinite(metadata.ProtectedStartSeconds) ? Math.Clamp(metadata.ProtectedStartSeconds, 0, 10) : 0;
         metadata.Status = RecordingStatus.Processing;
         metadata.Error = "";
         WaveMetadata.Write(path, metadata);
@@ -44,7 +52,7 @@ public sealed class RecordingProcessor(OpenAiClient api, string workingFolder)
         try
         {
             progress?.Invoke("analyzing");
-            var analysis = await Task.Run(() => SilenceProcessor.Analyze(path, settings, cancellationToken), cancellationToken);
+            var analysis = await Task.Run(() => SilenceProcessor.Analyze(path, analysisSettings, cancellationToken, protectedStart), cancellationToken);
             metadata.OriginalSeconds = analysis.Wave.DurationSeconds;
             metadata.SentSeconds = analysis.SentSeconds;
             metadata.Language = settings.Language;
@@ -60,7 +68,7 @@ public sealed class RecordingProcessor(OpenAiClient api, string workingFolder)
 
             if (string.IsNullOrWhiteSpace(settings.ApiKey)) throw new OpenAiException("OpenAI API key is not set.");
 
-            var signature = SilenceProcessor.Signature(settings, analysis.Wave);
+            var signature = SilenceProcessor.Signature(analysisSettings, analysis.Wave, protectedStart);
             if (metadata.ProcessingSignature != signature)
             {
                 metadata.ProcessingSignature = signature;

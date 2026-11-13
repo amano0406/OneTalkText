@@ -20,6 +20,10 @@ public sealed class RecordingMetadata
     public double OriginalSeconds { get; set; }
     public double SentSeconds { get; set; }
     public bool Refined { get; set; }
+    public bool? CalibrationReliable { get; set; }
+    public double? CalibratedNoiseDb { get; set; }
+    public double? CalibratedThresholdDb { get; set; }
+    public double ProtectedStartSeconds { get; set; }
 }
 
 public sealed record WaveInfo(int SampleRate, short Channels, short BitsPerSample, long DataOffset, long DataLength)

@@ -18,6 +18,7 @@ public sealed class AppSettings
     public bool DimScreen { get; set; } = true;
     public bool PlaySounds { get; set; } = true;
     public bool TrimSilence { get; set; } = true;
+    public bool AutoSilenceThreshold { get; set; } = true;
     public double SilenceThresholdDb { get; set; } = -45;
     public double MinimumSilenceSeconds { get; set; } = 2;
     public double RemainingGapSeconds { get; set; } = 1;
@@ -43,7 +44,7 @@ public sealed class AppSettings
     public void ResetAudio()
     {
         var defaults = new AppSettings();
-        TrimSilence = defaults.TrimSilence; SilenceThresholdDb = defaults.SilenceThresholdDb;
+        TrimSilence = defaults.TrimSilence; AutoSilenceThreshold = defaults.AutoSilenceThreshold; SilenceThresholdDb = defaults.SilenceThresholdDb;
         MinimumSilenceSeconds = defaults.MinimumSilenceSeconds; RemainingGapSeconds = defaults.RemainingGapSeconds;
         NoiseMarginDb = defaults.NoiseMarginDb;
     }
@@ -86,6 +87,7 @@ public sealed class ConfigStore(string folder)
         s.DimScreen = Bool("DIM_SCREEN", s.DimScreen);
         s.PlaySounds = Bool("PLAY_SOUNDS", s.PlaySounds);
         s.TrimSilence = Bool("TRIM_SILENCE", s.TrimSilence);
+        s.AutoSilenceThreshold = Bool("AUTO_SILENCE_THRESHOLD", s.AutoSilenceThreshold);
         s.SilenceThresholdDb = Math.Clamp(Double("SILENCE_THRESHOLD_DB", s.SilenceThresholdDb), -90, 0);
         s.MinimumSilenceSeconds = Math.Clamp(Double("MIN_SILENCE_SECONDS", s.MinimumSilenceSeconds), 0.1, 120);
         s.RemainingGapSeconds = Math.Clamp(Double("REMAINING_GAP_SECONDS", s.RemainingGapSeconds), 0, 10);
@@ -116,6 +118,7 @@ public sealed class ConfigStore(string folder)
             "DIM_SCREEN=" + s.DimScreen,
             "PLAY_SOUNDS=" + s.PlaySounds,
             "TRIM_SILENCE=" + s.TrimSilence,
+            "AUTO_SILENCE_THRESHOLD=" + s.AutoSilenceThreshold,
             "SILENCE_THRESHOLD_DB=" + D(s.SilenceThresholdDb),
             "MIN_SILENCE_SECONDS=" + D(s.MinimumSilenceSeconds),
             "REMAINING_GAP_SECONDS=" + D(s.RemainingGapSeconds),

@@ -21,10 +21,19 @@ public sealed class AudioRecorder : IDisposable
     private DateTime _lastCheckpoint;
     private Exception? _writeError;
     private bool _requestedStop;
+    private bool _captureEnding;
     private double _level;
+    private double _noiseMarginDb;
+    private NoiseCalibrationAccumulator? _calibrator;
+    private NoiseCalibration? _calibration;
+    private TaskCompletionSource<NoiseCalibration?> _preparation = NewPreparation();
     public bool IsRecording { get; private set; }
+    public bool IsEnding => Volatile.Read(ref _captureEnding);
     public double Level => Volatile.Read(ref _level);
+    public Task<NoiseCalibration?> Preparation => _preparation.Task;
     public event Action<RecordingFinished>? Finished;
+
+    private static TaskCompletionSource<NoiseCalibration?> NewPreparation() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public static List<MicrophoneOption> GetMicrophones(string defaultLabel)
     {
@@ -45,7 +54,7 @@ public sealed class AudioRecorder : IDisposable
         throw new InvalidOperationException("The selected microphone is not available.");
     }
 
-    public void Start(string folder, string microphoneName, string language)
+    public void Start(string folder, string microphoneName, string language, double noiseMarginDb)
     {
         if (IsRecording) throw new InvalidOperationException("Recording is already in progress.");
         var device = ResolveDevice(microphoneName);
@@ -55,6 +64,11 @@ public sealed class AudioRecorder : IDisposable
         _language = language;
         _writeError = null;
         _requestedStop = false;
+        _captureEnding = false;
+        _noiseMarginDb = noiseMarginDb;
+        _calibration = null;
+        _calibrator = new NoiseCalibrationAccumulator();
+        _preparation = NewPreparation();
         _lastCheckpoint = DateTime.UtcNow;
         _writer = new DurableWaveWriter(_partialPath);
         _capture = new WaveInEvent { DeviceNumber = device, WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 50, NumberOfBuffers = 3 };
@@ -80,6 +94,16 @@ public sealed class AudioRecorder : IDisposable
         _capture.StopRecording();
     }
 
+    public void AbandonPreparation()
+    {
+        lock (_gate)
+        {
+            if (_preparation.Task.IsCompleted) return;
+            _calibrator = null;
+            _preparation.TrySetResult(null);
+        }
+    }
+
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
         if (e.BytesRecorded <= 0) return;
@@ -88,6 +112,16 @@ public sealed class AudioRecorder : IDisposable
             lock (_gate)
             {
                 _writer?.Write(e.Buffer.AsSpan(0, e.BytesRecorded));
+                if (_calibrator is not null)
+                {
+                    var result = _calibrator.Add(e.Buffer.AsSpan(0, e.BytesRecorded), _noiseMarginDb);
+                    if (result is not null)
+                    {
+                        Volatile.Write(ref _calibration, result);
+                        _calibrator = null;
+                        _preparation.TrySetResult(result);
+                    }
+                }
                 if (DateTime.UtcNow - _lastCheckpoint >= TimeSpan.FromSeconds(1))
                 { _writer?.Checkpoint(); _lastCheckpoint = DateTime.UtcNow; }
             }
@@ -96,7 +130,8 @@ public sealed class AudioRecorder : IDisposable
             { var v = (short)(e.Buffer[i] | e.Buffer[i + 1] << 8) / 32768.0; sum += v * v; }
             var rms = count == 0 ? 0 : Math.Sqrt(sum / count);
             var db = rms <= 1e-9 ? -90 : 20 * Math.Log10(rms);
-            Volatile.Write(ref _level, Math.Clamp((db + 65) / 60, 0, 1));
+            var calibration = Volatile.Read(ref _calibration);
+            Volatile.Write(ref _level, WaveformLevel.FromDecibels(db, calibration is { IsReliable: true } ? calibration.NoiseDb : null));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ObjectDisposedException)
         {
@@ -107,13 +142,23 @@ public sealed class AudioRecorder : IDisposable
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
     {
+        Volatile.Write(ref _captureEnding, true);
         var interrupted = !_requestedStop || _writeError is not null || e.Exception is not null;
         Exception? failure = _writeError ?? e.Exception;
         var error = interrupted ? "Recording stopped unexpectedly. The saved audio can be retried." : "";
         var finalPath = _partialPath;
+        NoiseCalibration? calibration = null;
+        double protectedStart = 0;
         try
         {
-            lock (_gate) { _writer?.Dispose(); _writer = null; }
+            lock (_gate)
+            {
+                calibration = _calibration;
+                protectedStart = Math.Min(NoiseCalibrationAccumulator.DurationSeconds, (_writer?.AudioBytes ?? 0) / (double)(NoiseCalibrationAccumulator.SampleRate * 2));
+                _calibrator = null;
+                _preparation.TrySetResult(calibration);
+                _writer?.Dispose(); _writer = null;
+            }
             finalPath = _partialPath.Replace(".recording.wav", ".wav", StringComparison.OrdinalIgnoreCase);
             File.Move(_partialPath, finalPath);
             var info = WaveMetadata.Read(finalPath).Info;
@@ -121,7 +166,11 @@ public sealed class AudioRecorder : IDisposable
             {
                 CreatedAt = _started, Language = _language,
                 Status = interrupted ? RecordingStatus.Interrupted : RecordingStatus.Pending,
-                Error = error, OriginalSeconds = info.DurationSeconds
+                Error = error, OriginalSeconds = info.DurationSeconds,
+                CalibrationReliable = calibration is { IsReliable: true },
+                CalibratedNoiseDb = calibration?.NoiseDb,
+                CalibratedThresholdDb = calibration?.ThresholdDb,
+                ProtectedStartSeconds = protectedStart
             });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -133,6 +182,7 @@ public sealed class AudioRecorder : IDisposable
         }
         finally
         {
+            _preparation.TrySetResult(null);
             IsRecording = false;
             Volatile.Write(ref _level, 0);
             _capture?.Dispose(); _capture = null;

@@ -44,13 +44,15 @@ public static class SilenceProcessor
         return cut;
     }
 
-    public static AudioAnalysis Analyze(string path, AppSettings settings, CancellationToken cancellationToken = default)
+    public static AudioAnalysis Analyze(string path, AppSettings settings, CancellationToken cancellationToken = default, double protectedStartSeconds = 0)
     {
         var (wave, _) = WaveMetadata.Read(path);
         if (wave.Channels != 1 || wave.BitsPerSample != 16) throw new InvalidDataException("Only 16-bit mono PCM recordings can be processed.");
         var frameSamples = Math.Max(1, (int)Math.Round(wave.SampleRate * FrameSeconds));
         var buffer = new byte[frameSamples * 2];
         var totalSamples = wave.DataLength / 2;
+        var protectedSamples = double.IsFinite(protectedStartSeconds)
+            ? (long)(Math.Clamp(protectedStartSeconds, 0, wave.DurationSeconds) * wave.SampleRate) : 0;
         var minSilence = (long)(Math.Max(0.1, settings.MinimumSilenceSeconds) * wave.SampleRate);
         var gapSamples = (long)(Math.Max(0, settings.RemainingGapSeconds) * wave.SampleRate);
         var padding = (long)(BoundaryPaddingSeconds * wave.SampleRate);
@@ -80,6 +82,7 @@ public static class SilenceProcessor
                     cutStart = silentStart + retained / 2;
                     cutEnd = end - (retained - retained / 2);
                 }
+                cutStart = Math.Max(cutStart, protectedSamples);
                 if (cutEnd > cutStart) cuts.Add((cutStart, cutEnd, end == totalSamples ? -1 : end));
             }
             silentStart = -1;
@@ -143,9 +146,10 @@ public static class SilenceProcessor
         return new(wave, ranges, hasSignal, peak <= 1.0 / 32768, peak <= 1e-12 ? -120 : 20 * Math.Log10(peak), sent);
     }
 
-    public static string Signature(AppSettings s, WaveInfo wave)
+    public static string Signature(AppSettings s, WaveInfo wave, double protectedStartSeconds = 0)
     {
         var data = FormattableString.Invariant($"2|{wave.DataLength}|{wave.SampleRate}|{s.TrimSilence}|{s.SilenceThresholdDb:R}|{s.MinimumSilenceSeconds:R}|{s.RemainingGapSeconds:R}|{s.Language}|{s.TranscriptionModel}");
+        if (protectedStartSeconds > 0) data += FormattableString.Invariant($"|protected:{protectedStartSeconds:R}");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(data)));
     }
 

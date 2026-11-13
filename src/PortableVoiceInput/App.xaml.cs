@@ -18,14 +18,17 @@ public partial class App : System.Windows.Application
     private MainWindow? _window;
     private DimOverlay? _dim;
     private WaveformOverlay? _wave;
+    private ProcessingOverlay? _preparationOverlay;
     private ProcessingOverlay? _processingOverlay;
     private CancellationTokenSource? _processingCancellation;
     private Mutex? _instance;
     private EventWaitHandle? _openSettingsSignal;
     private RegisteredWaitHandle? _openSettingsRegistration;
-    private bool _stopping, _quitRequested;
+    private bool _stopping, _quitRequested, _preparing;
+    private int _recordingGeneration;
     public AppSettings Settings { get; private set; } = new();
     public bool IsRecording => _recorder.IsRecording;
+    public bool IsPreparing => _preparing;
     public bool IsProcessing { get; private set; }
     public string AppFolder { get; private set; } = "";
     public string RecordingsFolder => Path.Combine(AppFolder, "recordings");
@@ -102,7 +105,12 @@ public partial class App : System.Windows.Application
                 if (File.Exists(destination)) destination = partial[..^".recording.wav".Length] + "-recovered.wav";
                 File.Move(partial, destination);
                 var info = WaveMetadata.Read(destination).Info;
-                WaveMetadata.Write(destination, new RecordingMetadata { Status = RecordingStatus.Interrupted, OriginalSeconds = info.DurationSeconds, Error = "The recording was interrupted and can be retried." });
+                WaveMetadata.Write(destination, new RecordingMetadata
+                {
+                    Status = RecordingStatus.Interrupted, OriginalSeconds = info.DurationSeconds,
+                    Error = "The recording was interrupted and can be retried.", CalibrationReliable = false,
+                    ProtectedStartSeconds = Math.Min(NoiseCalibrationAccumulator.DurationSeconds, info.DurationSeconds)
+                });
                 count++;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { _log?.Error("Recording recovery failed", ex); }
@@ -188,13 +196,14 @@ public partial class App : System.Windows.Application
         try
         {
             _window?.SuspendAudioPreview();
-            if (Settings.PlaySounds) CuePlayer.Play(true);
-            _recorder.Start(RecordingsFolder, Settings.MicrophoneName, Settings.Language);
-            if (Settings.DimScreen) { _dim = new DimOverlay(); _dim.FadeIn(); }
-            _wave = new WaveformOverlay(Settings, () => _recorder.Level);
-            _wave.PositionSaved += SaveWaveformPosition;
-            _wave.Begin();
-            _window?.SetState(true, false, null); _window?.RefreshRecordings(force: true); UpdateTrayMenu();
+            var settings = Settings.Copy();
+            _recorder.Start(RecordingsFolder, settings.MicrophoneName, settings.Language, settings.NoiseMarginDb);
+            var generation = ++_recordingGeneration;
+            _preparing = true;
+            _preparationOverlay = new ProcessingOverlay(settings, T("PreparingRecording"));
+            _preparationOverlay.Show();
+            _window?.SetState(true, false, T("PreparingRecording")); _window?.RefreshRecordings(force: true); UpdateTrayMenu();
+            _ = CompletePreparationAsync(generation, settings);
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or NAudio.MmException)
         {
@@ -206,6 +215,34 @@ public partial class App : System.Windows.Application
             }
             Notify(ex is InvalidOperationException ? T("MissingMicrophone") : T("RecordingError"), Forms.ToolTipIcon.Error);
             _window?.ResumeAudioPreview();
+        }
+    }
+
+    private async Task CompletePreparationAsync(int generation, AppSettings settings)
+    {
+        try
+        {
+            try { await _recorder.Preparation.WaitAsync(TimeSpan.FromSeconds(3)); }
+            catch (TimeoutException ex)
+            {
+                _log?.Error("Microphone preparation timed out", ex);
+                if (generation == _recordingGeneration && _recorder.IsRecording) _recorder.AbandonPreparation();
+            }
+            if (generation != _recordingGeneration || !_preparing || _stopping || _quitRequested || !_recorder.IsRecording || _recorder.IsEnding) return;
+            _preparationOverlay?.Close(); _preparationOverlay = null;
+            _preparing = false;
+            if (settings.DimScreen) { _dim = new DimOverlay(); _dim.FadeIn(); }
+            if (settings.PlaySounds) CuePlayer.Play(true);
+            _wave = new WaveformOverlay(settings, () => _recorder.Level);
+            _wave.PositionSaved += SaveWaveformPosition;
+            _wave.Begin();
+            _window?.SetState(true, false, null); UpdateTrayMenu();
+        }
+        catch (Exception ex)
+        {
+            _log?.Error("Finishing recording preparation failed", ex);
+            Notify(T("RecordingError"), Forms.ToolTipIcon.Error);
+            if (generation == _recordingGeneration && _recorder.IsRecording) StopRecordingAfterTail();
         }
     }
 
@@ -235,6 +272,8 @@ public partial class App : System.Windows.Application
     private void RecordingFinished(RecordingFinished result)
     {
         _stopping = false;
+        _preparing = false;
+        _preparationOverlay?.Close(); _preparationOverlay = null;
         _wave?.Finish(); _wave = null;
         _dim?.FadeOut(); _dim = null;
         _window?.ResumeAudioPreview();
