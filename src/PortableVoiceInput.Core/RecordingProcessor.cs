@@ -48,9 +48,10 @@ public sealed class RecordingProcessor(OpenAiClient api, string workingFolder)
             metadata.OriginalSeconds = analysis.Wave.DurationSeconds;
             metadata.SentSeconds = analysis.SentSeconds;
             metadata.Language = settings.Language;
-            if (analysis.IsDigitalSilence || (settings.TrimSilence && !analysis.HasSignal))
+            if (analysis.IsDigitalSilence)
             {
-                // No signal is not an API failure. Keep the original in case it contained quiet speech.
+                // Digital silence is not an API failure. A quiet non-zero recording
+                // may still contain speech and must be sent for transcription.
                 metadata.Status = RecordingStatus.NoSpeech;
                 metadata.Error = "";
                 WaveMetadata.Write(path, metadata);
@@ -64,9 +65,7 @@ public sealed class RecordingProcessor(OpenAiClient api, string workingFolder)
             {
                 metadata.ProcessingSignature = signature;
                 metadata.CompletedChunks.Clear();
-                metadata.Transcript = "";
-                metadata.FinalText = "";
-                metadata.Refined = false;
+                // Keep any earlier result accessible until the new attempt succeeds.
                 WaveMetadata.Write(path, metadata);
             }
             jobFolder = Path.Combine(workingFolder, Guid.NewGuid().ToString("N"));

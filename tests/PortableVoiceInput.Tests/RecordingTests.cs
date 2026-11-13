@@ -148,6 +148,88 @@ public sealed class RecordingTests
     }
 
     [Fact]
+    public void QuietFinalPhraseIsKeptWhenLongSilencesAreShortened()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("quiet-tail.wav");
+        var normal = Signal(16000, 0.4);
+        var quietTail = Signal(16000 * 8, 0.0005);
+        using (var writer = new DurableWaveWriter(path))
+        {
+            writer.Write(normal);
+            writer.Write(quietTail);
+            writer.Write(new byte[16000 * 2 * 5]);
+        }
+        var original = ReadAudio(path);
+        var analysis = SilenceProcessor.Analyze(path, new AppSettings { SilenceThresholdDb = -40, MinimumSilenceSeconds = 2 });
+        var chunk = Assert.Single(SilenceProcessor.CreateChunks(path, analysis, workspace.File("chunks")));
+        var sent = ReadAudio(chunk);
+        Assert.Equal(normal, sent[..normal.Length]);
+        Assert.Equal(quietTail, sent[normal.Length..(normal.Length + quietTail.Length)]);
+        Assert.InRange(analysis.SentSeconds, 9.2, 9.3);
+        Assert.Equal(original, ReadAudio(path));
+    }
+
+    [Fact]
+    public void ShortcutClickDoesNotCauseAQuietFinalPhraseToBeCut()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("quiet-tail-with-click.wav");
+        var normal = Signal(16000, 0.4);
+        var quietTail = Signal(16000 * 8, 0.0005);
+        using (var writer = new DurableWaveWriter(path))
+        {
+            writer.Write(normal);
+            writer.Write(quietTail);
+            writer.Write(Signal(1600, 0.7)); // short key click just before the capture tail
+            writer.Write(new byte[16000 * 2]);
+        }
+        var original = ReadAudio(path);
+        var analysis = SilenceProcessor.Analyze(path, new AppSettings { SilenceThresholdDb = -40, MinimumSilenceSeconds = 2 });
+        var chunk = Assert.Single(SilenceProcessor.CreateChunks(path, analysis, workspace.File("chunks")));
+        var sent = ReadAudio(chunk);
+        Assert.Equal(quietTail, sent[normal.Length..(normal.Length + quietTail.Length)]);
+        Assert.Equal(original, ReadAudio(path));
+    }
+
+    [Fact]
+    public async Task QuietRecordingBelowThresholdIsStillTranscribed()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("quiet.wav");
+        using (var writer = new DurableWaveWriter(path)) writer.Write(Signal(16000, 0.0005));
+        var original = ReadAudio(path);
+        var handler = new ScriptedHandler([HttpStatusCode.OK], "quiet final words");
+        var processor = new RecordingProcessor(new OpenAiClient(new HttpClient(handler)), workspace.File("work"));
+        var result = await processor.ProcessAsync(path, new AppSettings { ApiKey = "sk-test", SilenceThresholdDb = -40 });
+        Assert.True(result.HasOutput);
+        Assert.Equal("quiet final words", result.Metadata.FinalText);
+        Assert.Equal(1, handler.CallCount);
+        Assert.Equal(original, ReadAudio(path));
+    }
+
+    [Fact]
+    public async Task ChangedProcessingPreservesPreviousTextIfTheNewAttemptFails()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("previous.wav");
+        using (var writer = new DurableWaveWriter(path)) writer.Write(Signal(16000, 0.4));
+        WaveMetadata.Write(path, new RecordingMetadata
+        {
+            Status = RecordingStatus.Complete, ProcessingSignature = "old-signature",
+            Transcript = "previous transcript", FinalText = "previous complete result",
+            CompletedChunks = ["previous transcript"]
+        });
+        var handler = new ScriptedHandler([HttpStatusCode.BadRequest]);
+        var processor = new RecordingProcessor(new OpenAiClient(new HttpClient(handler)), workspace.File("work"));
+        await Assert.ThrowsAsync<OpenAiException>(() => processor.ProcessAsync(path, new AppSettings { ApiKey = "sk-test" }));
+        var saved = WaveMetadata.Read(path).Metadata;
+        Assert.Equal(RecordingStatus.Failed, saved.Status);
+        Assert.Equal("previous complete result", saved.FinalText);
+        Assert.Equal("previous transcript", saved.Transcript);
+    }
+
+    [Fact]
     public void TwoHourRecordingCanBeAnalyzedWithoutLosingTheOriginal()
     {
         using var workspace = new TestWorkspace();

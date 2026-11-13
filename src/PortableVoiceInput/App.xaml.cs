@@ -10,6 +10,7 @@ namespace PortableVoiceInput;
 public partial class App : System.Windows.Application
 {
     private ConfigStore _config = null!;
+    private DiagnosticLog? _log;
     private GlobalHotkey _hotkey = null!;
     private readonly AudioRecorder _recorder = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
@@ -33,8 +34,17 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        base.OnStartup(e);
         AppFolder = AppContext.BaseDirectory;
+        try { _log = new DiagnosticLog(AppFolder); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        DispatcherUnhandledException += (_, args) => _log?.Error("Unhandled UI exception", args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => _log?.Error("Unhandled application exception", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            _log?.Error("Unobserved task exception", args.Exception);
+            args.SetObserved();
+        };
+        base.OnStartup(e);
         var instanceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(AppFolder.ToUpperInvariant())))[..16];
         _instance = new Mutex(true, "Local\\PortableVoiceInput-" + instanceId, out var isNew);
         if (!isNew)
@@ -74,6 +84,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
+            _log?.Error("Application startup failed", ex);
             System.Windows.MessageBox.Show("OneTalk Text could not access its app folder. " + ex.Message);
             Shutdown();
         }
@@ -94,7 +105,7 @@ public partial class App : System.Windows.Application
                 WaveMetadata.Write(destination, new RecordingMetadata { Status = RecordingStatus.Interrupted, OriginalSeconds = info.DurationSeconds, Error = "The recording was interrupted and can be retried." });
                 count++;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { _log?.Error("Recording recovery failed", ex); }
         }
         foreach (var path in Directory.EnumerateFiles(RecordingsFolder, "*.wav").Where(p => !p.EndsWith(".recording.wav", StringComparison.OrdinalIgnoreCase)))
         {
@@ -106,7 +117,7 @@ public partial class App : System.Windows.Application
                 meta.Error = "Processing was interrupted. The original audio and completed segments were kept.";
                 WaveMetadata.Write(path, meta); count++;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { _log?.Error("Processing recovery failed", ex); }
         }
         return count;
     }
@@ -150,6 +161,7 @@ public partial class App : System.Windows.Application
         try { _config.Save(next); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            _log?.Error("Saving settings failed", ex);
             _hotkey.Register(old.HotkeyModifiers, old.HotkeyKey);
             System.Windows.MessageBox.Show(Loc.Text("SaveFailed", next.Language), Loc.Text("ErrorTitle", next.Language), MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
@@ -169,9 +181,7 @@ public partial class App : System.Windows.Application
         if (_quitRequested || _stopping) return;
         if (IsRecording)
         {
-            _stopping = true;
-            try { _recorder.Stop(); }
-            catch (Exception ex) when (ex is InvalidOperationException or NAudio.MmException) { _stopping = false; Notify(T("RecordingError"), Forms.ToolTipIcon.Error); }
+            StopRecordingAfterTail();
             return;
         }
         if (IsProcessing) { Notify(T("BusyMessage"), Forms.ToolTipIcon.Info); return; }
@@ -188,6 +198,7 @@ public partial class App : System.Windows.Application
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or NAudio.MmException)
         {
+            _log?.Error("Starting recording failed", ex);
             if (_recorder.IsRecording)
             {
                 _stopping = true;
@@ -198,10 +209,27 @@ public partial class App : System.Windows.Application
         }
     }
 
+    private async void StopRecordingAfterTail()
+    {
+        if (_stopping) return;
+        _stopping = true;
+        // Capture audio that is still in a microphone or driver buffer when
+        // the shortcut is pressed. The recording indicator remains visible.
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        if (!_recorder.IsRecording) return;
+        try { _recorder.Stop(); }
+        catch (Exception ex) when (ex is InvalidOperationException or NAudio.MmException)
+        {
+            _log?.Error("Stopping recording failed", ex);
+            _stopping = false;
+            Notify(T("RecordingError"), Forms.ToolTipIcon.Error);
+        }
+    }
+
     private void SaveWaveformPosition(double left, double top)
     {
         Settings.WaveformLeft = left; Settings.WaveformTop = top;
-        try { _config.Save(Settings); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Notify(T("SaveFailed"), Forms.ToolTipIcon.Warning); }
+        try { _config.Save(Settings); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { _log?.Error("Saving waveform position failed", ex); Notify(T("SaveFailed"), Forms.ToolTipIcon.Warning); }
     }
 
     private void RecordingFinished(RecordingFinished result)
@@ -212,6 +240,7 @@ public partial class App : System.Windows.Application
         _window?.ResumeAudioPreview();
         if (Settings.PlaySounds) CuePlayer.Play(false);
         UpdateTrayMenu(); _window?.SetState(false, false, null); _window?.RefreshRecordings(force: true);
+        if (result.Interrupted) _log?.Error("Recording stopped unexpectedly", result.Exception);
         if (_quitRequested) { FinishQuit(); return; }
         if (result.Interrupted) { Notify(T("RecordingError"), Forms.ToolTipIcon.Error); return; }
         _ = ProcessAndDeliverAsync(result.Path);
@@ -242,8 +271,10 @@ public partial class App : System.Windows.Application
             }
             else Notify(T("NoTextMessage"), Forms.ToolTipIcon.Info);
         }
-        catch (Exception ex) when (ex is OpenAiException or HttpRequestException or IOException or UnauthorizedAccessException or InvalidDataException or OperationCanceledException or InvalidOperationException)
+        catch (OperationCanceledException) when (_processingCancellation.IsCancellationRequested) { }
+        catch (Exception ex)
         {
+            _log?.Error("Transcription or text delivery failed", ex);
             if (!_quitRequested) Notify(string.IsNullOrWhiteSpace(settings.ApiKey) ? T("MissingKey") : T("ApiError"), Forms.ToolTipIcon.Warning);
         }
         finally
@@ -277,7 +308,7 @@ public partial class App : System.Windows.Application
     private void RequestQuit()
     {
         _quitRequested = true;
-        if (IsRecording) { _recorder.Stop(); return; }
+        if (IsRecording) { StopRecordingAfterTail(); return; }
         if (IsProcessing) { _processingCancellation?.Cancel(); return; }
         FinishQuit();
     }
@@ -286,6 +317,7 @@ public partial class App : System.Windows.Application
     {
         _openSettingsRegistration?.Unregister(null); _openSettingsSignal?.Dispose();
         _tray?.Dispose(); _hotkey?.Dispose(); _recorder.Dispose(); _http.Dispose(); _instance?.Dispose();
+        _log?.Dispose();
         base.OnExit(e);
     }
 }

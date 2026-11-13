@@ -11,6 +11,8 @@ public static class SilenceProcessor
 {
     private const double FrameSeconds = 0.02;
     private const double BoundaryPaddingSeconds = 0.25;
+    private const double EndGuardSeconds = 3;
+    private const double ShortBurstSeconds = 0.3;
 
     /// <summary>Approximate the final cuts for a rolling display of RMS levels.</summary>
     public static bool[] PreviewCuts(IReadOnlyList<double> levels, double frameSeconds, double thresholdDb, double minimumSeconds, double gapSeconds, bool enabled)
@@ -22,12 +24,19 @@ public static class SilenceProcessor
         {
             if (levels[start] >= thresholdDb) { start++; continue; }
             var end = start + 1; while (end < levels.Count && levels[end] < thresholdDb) end++;
+            // The current end of the preview may contain quiet speech, so do not
+            // predict a cut until another above-threshold section follows it.
+            if (end == levels.Count) break;
+            var burstEnd = end;
+            while (burstEnd < levels.Count && levels[burstEnd] >= thresholdDb) burstEnd++;
+            if ((levels.Count - end) * frameSeconds <= EndGuardSeconds && (burstEnd - end) * frameSeconds <= ShortBurstSeconds)
+            { start = end; continue; }
             if ((end - start) * frameSeconds >= minimumSeconds)
             {
                 var pad = (int)Math.Ceiling(BoundaryPaddingSeconds / frameSeconds);
                 var retained = Math.Max((int)Math.Ceiling(gapSeconds / frameSeconds), pad * 2);
-                var cutStart = start == 0 ? start : end == levels.Count ? Math.Min(end, start + pad) : Math.Min(end, start + retained / 2);
-                var cutEnd = start == 0 ? Math.Max(cutStart, end - pad) : end == levels.Count ? end : Math.Max(cutStart, end - (retained - retained / 2));
+                var cutStart = start == 0 ? start : Math.Min(end, start + retained / 2);
+                var cutEnd = start == 0 ? Math.Max(cutStart, end - pad) : Math.Max(cutStart, end - (retained - retained / 2));
                 for (var i = cutStart; i < cutEnd; i++) cut[i] = true;
             }
             start = end;
@@ -45,8 +54,9 @@ public static class SilenceProcessor
         var minSilence = (long)(Math.Max(0.1, settings.MinimumSilenceSeconds) * wave.SampleRate);
         var gapSamples = (long)(Math.Max(0, settings.RemainingGapSeconds) * wave.SampleRate);
         var padding = (long)(BoundaryPaddingSeconds * wave.SampleRate);
-        var cuts = new List<(long Start, long End)>();
-        long samplePosition = 0, silentStart = -1;
+        var cuts = new List<(long Start, long End, long FollowingSignal)>();
+        var signalRuns = new Dictionary<long, long>();
+        long samplePosition = 0, silentStart = -1, digitalSilenceStart = -1, signalStart = -1;
         double peak = 0; bool hasSignal = false;
 
         void FinishSilence(long end)
@@ -57,14 +67,20 @@ public static class SilenceProcessor
             {
                 long cutStart, cutEnd;
                 if (silentStart == 0) { cutStart = 0; cutEnd = Math.Max(0, end - padding); }
-                else if (end == totalSamples) { cutStart = Math.Min(end, silentStart + padding); cutEnd = end; }
+                else if (end == totalSamples)
+                {
+                    // A quiet final phrase can be below the configured threshold.
+                    // Only trim the final run if the samples themselves are silent.
+                    if (digitalSilenceStart < 0 || end - digitalSilenceStart < minSilence) { silentStart = -1; return; }
+                    cutStart = Math.Min(end, digitalSilenceStart + padding); cutEnd = end;
+                }
                 else
                 {
                     var retained = Math.Min(count, Math.Max(gapSamples, 2 * padding));
                     cutStart = silentStart + retained / 2;
                     cutEnd = end - (retained - retained / 2);
                 }
-                if (cutEnd > cutStart) cuts.Add((cutStart, cutEnd));
+                if (cutEnd > cutStart) cuts.Add((cutStart, cutEnd, end == totalSamples ? -1 : end));
             }
             silentStart = -1;
         }
@@ -77,20 +93,32 @@ public static class SilenceProcessor
             var wanted = (int)Math.Min(buffer.Length, (totalSamples - samplePosition) * 2);
             var read = file.ReadAtLeast(buffer.AsSpan(0, wanted), wanted, throwOnEndOfStream: false);
             if (read != wanted) throw new EndOfStreamException("Recording audio ended unexpectedly.");
-            double sum = 0;
+            double sum = 0; var framePeak = 0;
             for (var i = 0; i < read; i += 2)
             {
                 var sample = (short)(buffer[i] | buffer[i + 1] << 8);
+                framePeak = Math.Max(framePeak, Math.Abs((int)sample));
                 var normalized = sample / 32768.0;
                 sum += normalized * normalized;
                 peak = Math.Max(peak, Math.Abs(normalized));
             }
             var rms = Math.Sqrt(sum / (read / 2));
+            if (framePeak <= 1) { if (digitalSilenceStart < 0) digitalSilenceStart = samplePosition; }
+            else digitalSilenceStart = -1;
             var db = rms <= 1e-12 ? -120 : 20 * Math.Log10(rms);
-            if (db < settings.SilenceThresholdDb) { if (silentStart < 0) silentStart = samplePosition; }
-            else { hasSignal = true; FinishSilence(samplePosition); }
+            if (db < settings.SilenceThresholdDb)
+            {
+                if (signalStart >= 0) { signalRuns[signalStart] = samplePosition - signalStart; signalStart = -1; }
+                if (silentStart < 0) silentStart = samplePosition;
+            }
+            else
+            {
+                if (signalStart < 0) signalStart = samplePosition;
+                hasSignal = true; FinishSilence(samplePosition);
+            }
             samplePosition += read / 2;
         }
+        if (signalStart >= 0) signalRuns[signalStart] = totalSamples - signalStart;
         FinishSilence(totalSamples);
 
         // If all frames are below threshold, keep the original intact; low volume is not proof of silence.
@@ -101,6 +129,11 @@ public static class SilenceProcessor
             long cursor = 0;
             foreach (var cut in cuts)
             {
+                // A brief keyboard click near the stop shortcut can cross the
+                // threshold after a quiet final sentence. Retain that sentence.
+                if (cut.FollowingSignal >= totalSamples - EndGuardSeconds * wave.SampleRate &&
+                    signalRuns.TryGetValue(cut.FollowingSignal, out var burstLength) && burstLength <= ShortBurstSeconds * wave.SampleRate)
+                    continue;
                 if (cut.Start > cursor) ranges.Add(new(cursor * 2, (cut.Start - cursor) * 2));
                 cursor = Math.Max(cursor, cut.End);
             }
@@ -112,7 +145,7 @@ public static class SilenceProcessor
 
     public static string Signature(AppSettings s, WaveInfo wave)
     {
-        var data = FormattableString.Invariant($"1|{wave.DataLength}|{wave.SampleRate}|{s.TrimSilence}|{s.SilenceThresholdDb:R}|{s.MinimumSilenceSeconds:R}|{s.RemainingGapSeconds:R}|{s.Language}|{s.TranscriptionModel}");
+        var data = FormattableString.Invariant($"2|{wave.DataLength}|{wave.SampleRate}|{s.TrimSilence}|{s.SilenceThresholdDb:R}|{s.MinimumSilenceSeconds:R}|{s.RemainingGapSeconds:R}|{s.Language}|{s.TranscriptionModel}");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(data)));
     }
 

@@ -45,6 +45,28 @@ public sealed class ModelSelectionTests
         Assert.Contains(settings.CleanupPrompt, instructions!);
     }
 
+    [Fact]
+    public async Task IncompleteRefinementIsNotReturnedAsACompleteTranscript()
+    {
+        using var http = new HttpClient(new ReplyHandler(_ =>
+            "{\"status\":\"incomplete\",\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"partial\"}]}]}"));
+        var client = new OpenAiClient(http);
+        await Assert.ThrowsAsync<OpenAiException>(() => client.RefineAsync("full transcript", "tidy", new AppSettings { ApiKey = "sk-test" }, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task MalformedTranscriptionIsNotMistakenForSilence()
+    {
+        using var http = new HttpClient(new ReplyHandler(_ => "{\"unexpected\":true}"));
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllBytesAsync(path, [1, 2]);
+            await Assert.ThrowsAsync<InvalidDataException>(() => new OpenAiClient(http).TranscribeAsync(path, new AppSettings { ApiKey = "sk-test" }, CancellationToken.None));
+        }
+        finally { File.Delete(path); }
+    }
+
     [Theory]
     [InlineData("gpt-transcribe", "languages[]")]
     [InlineData("whisper-1", "language")]

@@ -14,6 +14,7 @@ OneTalk Text is a portable Windows dictation app. Record with a shortcut, then t
 - Optionally edits the transcript when you finish speaking with a configured trigger phrase. Both phrases and editing instructions are customizable.
 - Keeps the original audio locally. Transient API failures are retried automatically, and recordings can be retried from the app later.
 - Can shorten long quiet intervals before upload, with adjustable thresholds and a microphone preview.
+- Records for about one extra second after the stop shortcut to allow delayed microphone audio to arrive.
 - Supports English and Japanese. The selected interface language is also used as the expected speech language.
 
 ## Requirements and setup
@@ -32,6 +33,8 @@ Closing the settings window keeps the app running in the notification area. To q
 ## Data and costs
 
 Original WAV files and transcription metadata stay in the app's `recordings` folder until deleted. Silence is shortened only for upload. The OpenAI API key is stored **in plaintext** in `config.ini` next to the app; keep it and your recordings out of any shared copy. Audio is sent to OpenAI for transcription. When cleanup is triggered, the transcript and cleanup instructions are also sent to OpenAI. API usage may incur charges; see [OpenAI API pricing](https://developers.openai.com/api/docs/pricing).
+
+The app keeps quiet audio at the end of a recording to avoid cutting off a soft final phrase. This can increase the amount of audio sent when there is background noise after speech. Diagnostic error logs are written to `logs` beside the app. They contain exception types, error codes and stack traces, but not exception messages, API keys or transcripts. File paths may appear in stack traces, so review logs before sharing them. Logs are rotated and limited to 14 files.
 
 ## Build
 

@@ -39,7 +39,10 @@ public sealed class OpenAiClient
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             await EnsureSuccessAsync(response, ct);
             using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
-            return json.RootElement.TryGetProperty("text", out var text) ? text.GetString() ?? "" : "";
+            if (json.RootElement.ValueKind != JsonValueKind.Object ||
+                !json.RootElement.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String)
+                throw new InvalidDataException("The transcription response did not contain a text result.");
+            return text.GetString() ?? "";
         }, cancellationToken);
 
     public async Task<IReadOnlyList<string>> ListModelsAsync(string apiKey, CancellationToken cancellationToken)
@@ -66,6 +69,9 @@ public sealed class OpenAiClient
             using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             await EnsureSuccessAsync(response, ct);
             using var json = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+            if (json.RootElement.TryGetProperty("status", out var status) &&
+                (status.ValueKind != JsonValueKind.String || !string.Equals(status.GetString(), "completed", StringComparison.Ordinal)))
+                throw new OpenAiException("The text refinement did not complete. The original transcription is available for retry.");
             var pieces = new List<string>();
             if (json.RootElement.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
             {

@@ -13,6 +13,8 @@ recordings/
 **/recordings/
 working/
 **/working/
+logs/
+**/logs/
 .env
 .env.*
 *.key

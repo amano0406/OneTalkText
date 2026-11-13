@@ -8,7 +8,7 @@ public sealed record MicrophoneOption(string Name, int DeviceNumber)
     public override string ToString() => Name;
 }
 
-public sealed record RecordingFinished(string Path, bool Interrupted, string Error);
+public sealed record RecordingFinished(string Path, bool Interrupted, string Error, Exception? Exception = null);
 
 public sealed class AudioRecorder : IDisposable
 {
@@ -108,6 +108,7 @@ public sealed class AudioRecorder : IDisposable
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
     {
         var interrupted = !_requestedStop || _writeError is not null || e.Exception is not null;
+        Exception? failure = _writeError ?? e.Exception;
         var error = interrupted ? "Recording stopped unexpectedly. The saved audio can be retried." : "";
         var finalPath = _partialPath;
         try
@@ -126,6 +127,7 @@ public sealed class AudioRecorder : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             interrupted = true;
+            failure = ex;
             if (File.Exists(_partialPath)) finalPath = _partialPath;
             error = "The recording could not be finalized. Its file was kept for recovery.";
         }
@@ -135,7 +137,7 @@ public sealed class AudioRecorder : IDisposable
             Volatile.Write(ref _level, 0);
             _capture?.Dispose(); _capture = null;
         }
-        Finished?.Invoke(new RecordingFinished(finalPath, interrupted, error));
+        Finished?.Invoke(new RecordingFinished(finalPath, interrupted, error, failure));
     }
 
     public static async Task<double> MeasureBackgroundAsync(string microphoneName, CancellationToken cancellationToken)
