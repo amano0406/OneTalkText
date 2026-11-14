@@ -20,11 +20,13 @@ public partial class App : System.Windows.Application
     private WaveformOverlay? _wave;
     private ProcessingOverlay? _preparationOverlay;
     private ProcessingOverlay? _processingOverlay;
+    private ProcessingOverlay? _startupOverlay;
     private CancellationTokenSource? _processingCancellation;
+    private readonly CancellationTokenSource _startupCancellation = new();
     private Mutex? _instance;
     private EventWaitHandle? _openSettingsSignal;
     private RegisteredWaitHandle? _openSettingsRegistration;
-    private bool _stopping, _quitRequested, _preparing;
+    private bool _stopping, _quitRequested, _preparing, _openSettingsRequested, _shuttingDown;
     private int _recordingGeneration;
     public AppSettings Settings { get; private set; } = new();
     public bool IsRecording => _recorder.IsRecording;
@@ -35,21 +37,19 @@ public partial class App : System.Windows.Application
     private string WorkingFolder => Path.Combine(AppFolder, "working");
     private string T(string key) => Loc.Text(key, Settings.Language);
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
-        AppFolder = AppContext.BaseDirectory;
-        try { _log = new DiagnosticLog(AppFolder); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        DispatcherUnhandledException += (_, args) => _log?.Error("Unhandled UI exception", args.Exception);
-        AppDomain.CurrentDomain.UnhandledException += (_, args) => _log?.Error("Unhandled application exception", args.ExceptionObject as Exception);
-        TaskScheduler.UnobservedTaskException += (_, args) =>
+        if (e.Args.Length > 0 && e.Args[0] == UpdateHandoff.HelperSwitch)
         {
-            _log?.Error("Unobserved task exception", args.Exception);
-            args.SetObserved();
-        };
+            base.OnStartup(e);
+            await RunUpdateHelperAsync(e.Args);
+            return;
+        }
+        AppFolder = AppContext.BaseDirectory;
+        InitializeLogging();
         base.OnStartup(e);
         var instanceId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(AppFolder.ToUpperInvariant())))[..16];
-        _instance = new Mutex(true, "Local\\PortableVoiceInput-" + instanceId, out var isNew);
+        _instance = new Mutex(true, UpdatePaths.InstanceMutexName(AppFolder), out var isNew);
         if (!isNew)
         {
             try
@@ -67,12 +67,31 @@ public partial class App : System.Windows.Application
         {
             _openSettingsSignal = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\PortableVoiceInput-Settings-" + instanceId);
             _openSettingsRegistration = ThreadPool.RegisterWaitForSingleObject(_openSettingsSignal,
-                (_, _) => Dispatcher.BeginInvoke(ShowSettings), null, Timeout.Infinite, false);
+                (_, _) => Dispatcher.BeginInvoke(() => { if (_window is null) _openSettingsRequested = true; else ShowSettings(); }), null, Timeout.Infinite, false);
             Directory.CreateDirectory(RecordingsFolder);
             Directory.CreateDirectory(WorkingFolder);
             _config = new ConfigStore(AppFolder);
             Settings = _config.Load();
             Loc.Apply(Settings.Language);
+            var completedId = FindUpdateId(e.Args, UpdateHandoff.CompletedSwitch);
+            var failedId = FindUpdateId(e.Args, UpdateHandoff.FailedSwitch);
+            var updateFailed = false;
+            // Self-contained single-file releases can update their own executable.
+            // Framework-dependent development builds keep their separate DLLs and skip this step.
+            if (completedId is null && !e.Args.Contains(UpdateHandoff.SkipSwitch, StringComparer.Ordinal) &&
+                IsSingleFileRelease())
+            {
+                _startupOverlay = new ProcessingOverlay(Settings, T("CheckingUpdates"));
+                _startupOverlay.Show();
+                try
+                {
+                    var result = await PrepareUpdateAsync(e.Args.Contains("--settings", StringComparer.OrdinalIgnoreCase));
+                    updateFailed = result.Failed;
+                    if (result.HandedOff) { Shutdown(); return; }
+                }
+                finally { _startupOverlay?.Close(); _startupOverlay = null; }
+            }
+            if (_shuttingDown) return;
             var recovered = RecoverInterruptedRecordings();
             _hotkey = new GlobalHotkey();
             _hotkey.Pressed += ToggleRecording;
@@ -81,16 +100,117 @@ public partial class App : System.Windows.Application
             CreateTray();
             _window = new MainWindow(this);
             MainWindow = _window;
-            if (e.Args.Contains("--settings", StringComparer.OrdinalIgnoreCase) || !registered) ShowSettings();
+            if (e.Args.Contains("--settings", StringComparer.OrdinalIgnoreCase) || _openSettingsRequested || !registered) ShowSettings();
             if (!registered) Notify(T("HotkeyUnavailable"), Forms.ToolTipIcon.Warning);
             else if (recovered > 0) Notify(T("RecoverMessage"), Forms.ToolTipIcon.Info);
+            else if (failedId is not null || updateFailed) Notify(T("UpdateFailed"), Forms.ToolTipIcon.Warning);
+            if (completedId is Guid completed)
+            {
+                UpdateHandoff.SignalReady(completed);
+                ScheduleUpdateCleanup(completed);
+            }
+            else if (failedId is Guid failed) ScheduleUpdateCleanup(failed);
         }
+        catch (OperationCanceledException) when (_shuttingDown) { }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             _log?.Error("Application startup failed", ex);
             System.Windows.MessageBox.Show("OneTalk Text could not access its app folder. " + ex.Message);
             Shutdown();
         }
+    }
+
+    private void InitializeLogging()
+    {
+        try { _log = new DiagnosticLog(AppFolder); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        DispatcherUnhandledException += (_, args) => _log?.Error("Unhandled UI exception", args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => _log?.Error("Unhandled application exception", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            _log?.Error("Unobserved task exception", args.Exception);
+            args.SetObserved();
+        };
+    }
+
+    private static bool IsSingleFileRelease()
+    {
+#pragma warning disable IL3000 // An empty Location is the intended single-file detection here.
+        return string.IsNullOrEmpty(typeof(App).Assembly.Location);
+#pragma warning restore IL3000
+    }
+
+    private async Task<(bool HandedOff, bool Failed)> PrepareUpdateAsync(bool openSettings)
+    {
+        var updateAvailable = false;
+        UpdatePaths? paths = null;
+        var downloaded = false; var handedOff = false;
+        try
+        {
+            using var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            var client = new GitHubUpdateClient(http);
+            using var check = CancellationTokenSource.CreateLinkedTokenSource(_startupCancellation.Token);
+            check.CancelAfter(TimeSpan.FromSeconds(6));
+            var current = typeof(App).Assembly.GetName().Version ?? new Version(0, 0);
+            var release = await client.CheckAsync(current, check.Token);
+            if (release is null) return (false, false);
+            updateAvailable = true;
+            var executable = Environment.ProcessPath ?? throw new IOException("The app executable path is unavailable.");
+            paths = new UpdatePaths(AppFolder, Path.GetFileName(executable), Guid.NewGuid());
+            var progress = new Progress<int>(percent => { if (_startupOverlay is not null) _startupOverlay.Message = T("DownloadingUpdate") + " " + percent + "%"; });
+            if (_startupOverlay is not null) _startupOverlay.Message = T("DownloadingUpdate");
+            using var download = CancellationTokenSource.CreateLinkedTokenSource(_startupCancellation.Token);
+            download.CancelAfter(TimeSpan.FromMinutes(15));
+            await client.DownloadAsync(release, paths.Candidate, progress, download.Token);
+            downloaded = true;
+            GitHubUpdateClient.VerifyExecutableVersion(paths.Candidate, release);
+            if (_startupOverlay is not null) _startupOverlay.Message = T("ApplyingUpdate");
+            await UpdateHandoff.LaunchAsync(paths, release, Settings.Language, openSettings || _openSettingsRequested, _startupCancellation.Token);
+            handedOff = true;
+            return (true, false);
+        }
+        catch (OperationCanceledException) when (_shuttingDown) { throw; }
+        catch (Exception ex)
+        {
+            _log?.Error("Automatic update could not be prepared", ex);
+            return (false, updateAvailable);
+        }
+        finally
+        {
+            if (downloaded && !handedOff && paths is not null)
+            {
+                try { File.Delete(paths.Candidate); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    private async Task RunUpdateHelperAsync(string[] args)
+    {
+        if (!UpdateHandoff.TryParseHelper(args, Environment.ProcessPath, out var invocation) || invocation is null) { Shutdown(2); return; }
+        AppFolder = invocation.Paths.AppFolder;
+        Settings.Language = invocation.Language;
+        InitializeLogging();
+        Loc.Apply(Settings.Language);
+        var overlay = new ProcessingOverlay(Settings, T("ApplyingUpdate"));
+        try
+        {
+            overlay.Show();
+            await Task.Run(() => UpdateHandoff.Run(invocation, (operation, ex) => _log?.Error(operation, ex)));
+        }
+        catch (Exception ex) { _log?.Error("Update helper failed", ex); }
+        finally { overlay.Close(); Shutdown(); }
+    }
+
+    private static Guid? FindUpdateId(string[] args, string key)
+    {
+        var index = Array.IndexOf(args, key);
+        return index >= 0 && index + 1 < args.Length && Guid.TryParseExact(args[index + 1], "N", out var id) && id != Guid.Empty ? id : null;
+    }
+
+    private void ScheduleUpdateCleanup(Guid id)
+    {
+        var executable = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(executable)) UpdateHandoff.ScheduleCleanup(new UpdatePaths(AppFolder, Path.GetFileName(executable), id));
     }
 
     private int RecoverInterruptedRecordings()
@@ -354,6 +474,8 @@ public partial class App : System.Windows.Application
     private void FinishQuit() { _window?.AllowClose(); Shutdown(); }
     protected override void OnExit(ExitEventArgs e)
     {
+        _shuttingDown = true;
+        _startupCancellation.Cancel(); _startupCancellation.Dispose();
         _openSettingsRegistration?.Unregister(null); _openSettingsSignal?.Dispose();
         _tray?.Dispose(); _hotkey?.Dispose(); _recorder.Dispose(); _http.Dispose(); _instance?.Dispose();
         _log?.Dispose();

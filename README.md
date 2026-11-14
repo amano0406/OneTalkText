@@ -31,6 +31,12 @@ The standalone executable extracts part of its runtime to a Windows temporary fo
 
 Closing the settings window keeps the app running in the notification area. To quit, right-click the icon and choose **Quit**.
 
+## Updates
+
+Starting with version 0.1.5, OneTalk Text checks GitHub Releases when you start the app. If a newer release is available, the app shows the download progress and starts the new version after updating. A GitHub account or additional update service is not required.
+
+Updates replace the executable while keeping `config.ini` and the `recordings` folder. The download is checked against GitHub's published file size and SHA-256 digest. If the check or download fails, the installed version starts; if the updated app exits before it is ready, the previous executable is restored. Opening the app again while it is already running opens Settings without interrupting a recording to update.
+
 ## Data and costs
 
 Original WAV files and transcription metadata stay in the app's `recordings` folder until deleted. Silence is shortened only for upload. The OpenAI API key is stored **in plaintext** in `config.ini` next to the app; keep it and your recordings out of any shared copy. Audio is sent to OpenAI for transcription. When cleanup is triggered, the transcript and cleanup instructions are also sent to OpenAI. API usage may incur charges; see [OpenAI API pricing](https://developers.openai.com/api/docs/pricing).
@@ -55,5 +61,7 @@ dotnet publish src/PortableVoiceInput/PortableVoiceInput.csproj -c Release -r wi
 ```
 
 `test-audio` contains synthetic speech samples. The standard tests do not require an API key.
+
+To exercise update handoff and rollback in separate Windows processes, run `powershell -ExecutionPolicy Bypass -File tests/UpdateHandoff.Integration/Run.ps1`. This uses synthetic files in a temporary test folder.
 
 See [third-party-licenses](third-party-licenses/) for dependency license notices.
