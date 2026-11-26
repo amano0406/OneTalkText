@@ -10,6 +10,8 @@
 
 - 通知領域に常駐し、ショートカットを1回押して録音、もう1回押して終了します。
 - 録音前の準備中は右上に状態を表示し、録音中は波形と時間、終了後は処理中の状態を表示します。画面の暗転や開始・終了音は設定できます。
+- オーバーレイは、モニターの接続が変わった場合も画面内に収まります。録音中の波形はドラッグして移動できます。
+- 録音中の **中断** ボタンを押すと、音声を残したまま、文字起こしへ送らずに終了します。必要なら録音一覧から後で文字起こしできます。
 - 文字起こしがすべて終わってから、結果をクリップボードにコピーし、その時点でフォーカスされているアプリに貼り付けます。
 - 話の最後に設定済みのトリガーワードを言うと、設定した指示に従って文章を整えます。
 - 元の録音はローカルに残ります。通信エラーなどが起きた場合は自動で再試行し、録音一覧から後で再送信することもできます。
@@ -69,5 +71,7 @@ dotnet publish src/PortableVoiceInput/PortableVoiceInput.csproj -c Release -r wi
 `test-audio` にはテスト用の合成音声を含みます。通常のテストは実際の API キーを必要としません。
 
 更新時の実行ファイル入れ替えと復元を Windows 上の別プロセスで確認するには、`powershell -ExecutionPolicy Bypass -File tests/UpdateHandoff.Integration/Run.ps1` を実行します。一時フォルダ内のテスト用ファイルを使います。
+
+オーバーレイの位置と録音中断を確認するには、Windows のデスクトップ上で `dotnet run --project tests/Overlay.Integration/Overlay.Integration.csproj -c Release` を実行します。テスト用の合成音声を使い、API は呼び出しません。
 
 依存ライブラリのライセンスは [third-party-licenses](third-party-licenses/) にあります。

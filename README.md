@@ -10,6 +10,8 @@ OneTalk Text is a portable Windows dictation app. Record with a shortcut, then t
 
 - Lives in the notification area. Press a configurable shortcut once to start recording and again to stop.
 - Shows a brief preparation indicator before the waveform, then a progress indicator while processing. Screen dimming and start/stop sounds are optional.
+- Keeps the indicators inside the available screen area, including after a monitor is disconnected. You can drag the recording waveform to another position.
+- The recording indicator has a **Cancel** button: it stops and saves the audio without sending it for transcription. You can transcribe it later from Recordings.
 - Copies the completed transcription to the clipboard, then pastes into the application focused at that moment.
 - Optionally edits the transcript when you finish speaking with a configured trigger phrase. Both phrases and editing instructions are customizable.
 - Keeps the original audio locally. Transient API failures are retried automatically, and recordings can be retried from the app later.
@@ -63,5 +65,7 @@ dotnet publish src/PortableVoiceInput/PortableVoiceInput.csproj -c Release -r wi
 `test-audio` contains synthetic speech samples. The standard tests do not require an API key.
 
 To exercise update handoff and rollback in separate Windows processes, run `powershell -ExecutionPolicy Bypass -File tests/UpdateHandoff.Integration/Run.ps1`. This uses synthetic files in a temporary test folder.
+
+To check overlay placement and recording cancellation using a Windows desktop session, run `dotnet run --project tests/Overlay.Integration/Overlay.Integration.csproj -c Release`. The test uses synthetic audio and does not call the API.
 
 See [third-party-licenses](third-party-licenses/) for dependency license notices.

@@ -36,6 +36,7 @@ internal sealed class WaveformOverlay : Window
     private readonly Func<double> _level;
     private DateTimeOffset _started;
     public event Action<double, double>? PositionSaved;
+    public event Action? CancelRequested;
 
     public WaveformOverlay(AppSettings settings, Func<double> level)
     {
@@ -47,18 +48,23 @@ internal sealed class WaveformOverlay : Window
         Left = double.IsFinite(settings.WaveformLeft) ? settings.WaveformLeft : SystemParameters.WorkArea.Right - Width - 20;
         Top = double.IsFinite(settings.WaveformTop) ? settings.WaveformTop : SystemParameters.WorkArea.Top + 18;
         SourceInitialized += (_, _) => Native.SetOverlayStyles(this, false);
+        Native.TrackOverlayDisplayChanges(this);
         var panel = new Grid { Margin = new Thickness(5, 0, 5, 0) };
         panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _caption.Margin = new Thickness(16, 0, 13, 0);
         var dot = new System.Windows.Shapes.Ellipse { Width = 12, Height = 12, Fill = new SolidColorBrush(Color.FromRgb(247, 100, 105)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+        var cancel = OverlayControls.CancelButton(settings.Language);
+        cancel.Click += (_, _) => CancelRequested?.Invoke();
         panel.Children.Add(_wave); Grid.SetColumn(_caption, 1); panel.Children.Add(_caption); Grid.SetColumn(dot, 2); panel.Children.Add(dot);
+        Grid.SetColumn(cancel, 3); panel.Children.Add(cancel);
         Content = panel;
         MouseLeftButtonDown += (_, e) =>
         {
             if (e.ButtonState != MouseButtonState.Pressed) return;
-            try { DragMove(); PositionSaved?.Invoke(Left, Top); } catch (InvalidOperationException) { }
+            try { DragMove(); Native.KeepOverlayVisible(this); PositionSaved?.Invoke(Left, Top); } catch (InvalidOperationException) { }
         };
         _timer.Tick += (_, _) =>
         {
@@ -76,19 +82,46 @@ internal sealed class ProcessingOverlay : Window
 {
     private readonly TextBlock _message = new() { FontSize = 12, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
     public string Message { set => _message.Text = value; }
-    public ProcessingOverlay(AppSettings settings, string message)
+    public ProcessingOverlay(AppSettings settings, string message, Action? cancel = null)
     {
         Width = 250; Height = 42; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize; AllowsTransparency = true;
         Background = Brushes.Transparent; ShowInTaskbar = false; ShowActivated = false; Focusable = false; Topmost = true;
         Left = double.IsFinite(settings.WaveformLeft) ? settings.WaveformLeft + 190 : SystemParameters.WorkArea.Right - Width - 20;
         Top = double.IsFinite(settings.WaveformTop) ? settings.WaveformTop : SystemParameters.WorkArea.Top + 18;
-        SourceInitialized += (_, _) => Native.SetOverlayStyles(this, true);
+        SourceInitialized += (_, _) => Native.SetOverlayStyles(this, cancel is null);
+        Native.TrackOverlayDisplayChanges(this);
         var ring = new System.Windows.Shapes.Ellipse { Width = 15, Height = 15, Stroke = new SolidColorBrush(Color.FromRgb(173, 173, 255)), StrokeThickness = 2.5,
             StrokeDashArray = new DoubleCollection { 1, 1 }, RenderTransformOrigin = new Point(.5, .5), RenderTransform = new RotateTransform() };
         ring.RenderTransform.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(900)) { RepeatBehavior = RepeatBehavior.Forever });
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        panel.Children.Add(ring); panel.Children.Add(_message); Message = message;
+        var panel = new Grid { VerticalAlignment = VerticalAlignment.Center };
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        panel.Children.Add(ring); Grid.SetColumn(_message, 1); panel.Children.Add(_message); Message = message;
+        if (cancel is not null)
+        {
+            var button = OverlayControls.CancelButton(settings.Language);
+            button.Click += (_, _) => cancel();
+            Grid.SetColumn(button, 2); panel.Children.Add(button);
+        }
         Content = new Border { Background = new SolidColorBrush(Color.FromArgb(225, 31, 35, 48)), CornerRadius = new CornerRadius(7), Padding = new Thickness(12, 5, 12, 5), Child = panel };
+    }
+}
+
+internal static class OverlayControls
+{
+    public static Button CancelButton(string language)
+    {
+        var button = new Button
+        {
+            Content = Loc.Text("CancelRecording", language), Width = 58, Height = 28,
+            Padding = new Thickness(4, 1, 4, 1), Margin = new Thickness(8, 0, 0, 0),
+            Focusable = false, VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Color.FromRgb(79, 50, 58)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(148, 90, 99))
+        };
+        System.Windows.Automation.AutomationProperties.SetName(button, Loc.Text("CancelRecording", language));
+        return button;
     }
 }
 

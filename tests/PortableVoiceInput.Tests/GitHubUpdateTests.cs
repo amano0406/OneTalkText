@@ -45,9 +45,9 @@ public sealed class GitHubUpdateTests
     {
         var executable = Environment.GetEnvironmentVariable("ONETALK_TEST_EXE");
         if (string.IsNullOrWhiteSpace(executable)) return;
-        var release = new UpdateRelease(new Version(0, 1, 5), "v0.1.5", new Uri("https://github.com/amano0406/OneTalkText/releases/download/v0.1.5/OneTalkText.exe"), 1, Hash);
+        var release = new UpdateRelease(new Version(0, 1, 6), "v0.1.6", new Uri("https://github.com/amano0406/OneTalkText/releases/download/v0.1.6/OneTalkText.exe"), 1, Hash);
         GitHubUpdateClient.VerifyExecutableVersion(executable, release);
-        Assert.Throws<InvalidDataException>(() => GitHubUpdateClient.VerifyExecutableVersion(executable, release with { Version = new Version(0, 1, 6) }));
+        Assert.Throws<InvalidDataException>(() => GitHubUpdateClient.VerifyExecutableVersion(executable, release with { Version = new Version(0, 1, 7) }));
     }
 
     [Theory]

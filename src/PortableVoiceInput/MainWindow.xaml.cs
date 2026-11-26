@@ -433,6 +433,9 @@ public partial class MainWindow : Window
     private void UpdateResult()
     {
         if (ResultBox is null) return;
+        if (RetryButton is not null)
+            RetryButton.SetResourceReference(ContentControl.ContentProperty,
+                RecordingsGrid.SelectedItem is RecordingRow { Metadata.Status: RecordingStatus.Canceled } ? "TranscribeNow" : "Retry");
         if (RecordingsGrid.SelectedItem is not RecordingRow row) { ResultBox.Text = T("NoSelection"); return; }
         var text = string.IsNullOrWhiteSpace(row.Metadata.FinalText) ? row.Metadata.Transcript : row.Metadata.FinalText;
         var error = row.Metadata.Status == RecordingStatus.Failed && Language == "ja" ? "文字起こしに失敗しました。録音は残っています。" : row.Metadata.Error;

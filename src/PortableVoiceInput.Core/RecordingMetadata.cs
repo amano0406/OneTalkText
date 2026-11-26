@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace PortableVoiceInput.Core;
 
-public enum RecordingStatus { Pending, Processing, Complete, Failed, Interrupted, NoSpeech }
+public enum RecordingStatus { Pending, Processing, Complete, Failed, Interrupted, NoSpeech, Canceled }
 
 public sealed class RecordingMetadata
 {
@@ -29,6 +29,18 @@ public sealed class RecordingMetadata
 public sealed record WaveInfo(int SampleRate, short Channels, short BitsPerSample, long DataOffset, long DataLength)
 {
     public double DurationSeconds => DataLength / (double)(SampleRate * Channels * (BitsPerSample / 8));
+}
+
+public static class CanceledRecording
+{
+    /// <summary>Mark a deliberately stopped recording without changing its audio.</summary>
+    public static void Mark(string path)
+    {
+        var (_, metadata) = WaveMetadata.Read(path);
+        metadata.Status = RecordingStatus.Canceled;
+        metadata.Error = "";
+        WaveMetadata.Write(path, metadata);
+    }
 }
 
 /// <summary>

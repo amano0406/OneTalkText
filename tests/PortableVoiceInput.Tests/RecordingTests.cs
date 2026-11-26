@@ -99,6 +99,45 @@ public sealed class RecordingTests
     }
 
     [Fact]
+    public void CancelingAMistakenRecordingKeepsTheAudioAndMarksItForTheList()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("cancelled.wav");
+        var samples = Signal(16000, 0.5);
+        using (var writer = new DurableWaveWriter(path)) writer.Write(samples);
+        WaveMetadata.Write(path, new RecordingMetadata { Status = RecordingStatus.Pending, Language = "ja" });
+
+        CanceledRecording.Mark(path);
+
+        var (_, metadata) = WaveMetadata.Read(path);
+        Assert.Equal(RecordingStatus.Canceled, metadata.Status);
+        Assert.Equal("ja", metadata.Language);
+        Assert.Empty(metadata.Error);
+        Assert.Empty(metadata.Transcript);
+        Assert.Equal(samples, ReadAudio(path));
+    }
+
+    [Fact]
+    public async Task AStoppedRecordingCanBeTranscribedLaterOnlyOnRequest()
+    {
+        using var workspace = new TestWorkspace();
+        var path = workspace.File("retry-canceled.wav");
+        var samples = Signal(16000, 0.4);
+        using (var writer = new DurableWaveWriter(path)) writer.Write(samples);
+        var handler = new ScriptedHandler([HttpStatusCode.OK], "saved speech");
+        var processor = new RecordingProcessor(new OpenAiClient(new HttpClient(handler)), workspace.File("work"));
+
+        CanceledRecording.Mark(path);
+        Assert.Equal(0, handler.CallCount);
+
+        var result = await processor.ProcessAsync(path, new AppSettings { ApiKey = "sk-test", TrimSilence = false });
+        Assert.Equal(1, handler.CallCount);
+        Assert.Equal(RecordingStatus.Complete, result.Metadata.Status);
+        Assert.Equal("saved speech", result.Metadata.FinalText);
+        Assert.Equal(samples, ReadAudio(path));
+    }
+
+    [Fact]
     public void InterruptedRecordingRecoveryRepairsHeaderWithoutDroppingAudio()
     {
         using var workspace = new TestWorkspace();

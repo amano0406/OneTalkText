@@ -137,7 +137,7 @@
                         <TextBlock x:Name="PlaybackDuration" Grid.Column="2" Text="0:00" VerticalAlignment="Center"/>
                     </Grid>
                     <WrapPanel Grid.Row="5" Margin="0,5,0,0">
-                        <Button Content="{DynamicResource Retry}" Click="Retry_Click" Margin="0,0,5,4"/>
+                        <Button x:Name="RetryButton" Content="{DynamicResource Retry}" Click="Retry_Click" Margin="0,0,5,4"/>
                         <Button Content="{DynamicResource Copy}" Click="Copy_Click" Margin="0,0,5,4"/>
                         <Button Content="{DynamicResource Play}" Click="Play_Click" Margin="0,0,5,4"/>
                         <Button Content="{DynamicResource Pause}" Click="Pause_Click" Margin="0,0,5,4"/>

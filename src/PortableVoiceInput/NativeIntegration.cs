@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using PortableVoiceInput.Core;
 
 namespace PortableVoiceInput;
 
@@ -53,6 +54,10 @@ internal static class Native
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromRect(ref NativeRect rect, uint flags);
+    [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     public static void SetOverlayStyles(Window window, bool clickThrough)
     {
@@ -60,6 +65,42 @@ internal static class Native
         var flags = GetWindowLongPtr64(handle, GwlExStyle).ToInt64() | WsExNoActivate | WsExToolWindow;
         if (clickThrough) flags |= WsExTransparent;
         SetWindowLongPtr64(handle, GwlExStyle, new IntPtr(flags));
+    }
+
+    public static void KeepOverlayVisible(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || !GetWindowRect(handle, out var rect)) return;
+        var monitor = MonitorFromRect(ref rect, 2); // Nearest monitor, including disconnected saved positions.
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info)) return;
+        var current = new ScreenRectangle(rect.Left, rect.Top, rect.Right, rect.Bottom);
+        var work = new ScreenRectangle(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
+        var fitted = OverlayPlacement.Fit(current, work);
+        if (fitted != current)
+            SetWindowPos(handle, IntPtr.Zero, fitted.Left, fitted.Top, fitted.Width, fitted.Height, 0x0010 | 0x0004); // No activation or z-order change.
+    }
+
+    public static void TrackOverlayDisplayChanges(Window window)
+    {
+        void Reposition()
+        {
+            if (!window.Dispatcher.HasShutdownStarted)
+                window.Dispatcher.BeginInvoke(() => { if (window.IsVisible) KeepOverlayVisible(window); });
+        }
+        EventHandler displayChanged = (_, _) => Reposition();
+        System.ComponentModel.PropertyChangedEventHandler parametersChanged = (_, e) =>
+        {
+            if (e.PropertyName is "WorkArea" or "VirtualScreenWidth" or "VirtualScreenHeight" or "VirtualScreenLeft" or "VirtualScreenTop") Reposition();
+        };
+        window.Loaded += (_, _) => KeepOverlayVisible(window);
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += displayChanged;
+        SystemParameters.StaticPropertyChanged += parametersChanged;
+        window.Closed += (_, _) =>
+        {
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= displayChanged;
+            SystemParameters.StaticPropertyChanged -= parametersChanged;
+        };
     }
 
     /// <returns>Whether Ctrl+V was sent to another application. Clipboard is set in either case.</returns>
@@ -85,4 +126,6 @@ internal static class Native
     [StructLayout(LayoutKind.Explicit)] private struct InputUnion { [FieldOffset(0)] public KeyboardInput Keyboard; [FieldOffset(0)] public MouseInput Mouse; }
     [StructLayout(LayoutKind.Sequential)] private struct KeyboardInput { public ushort VirtualKey, Scan; public uint Flags, Time; public UIntPtr ExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] private struct MouseInput { public int X, Y; public uint MouseData, Flags, Time; public UIntPtr ExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { public int Size; public NativeRect Monitor, Work; public uint Flags; }
 }

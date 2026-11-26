@@ -27,6 +27,7 @@ public partial class App : System.Windows.Application
     private EventWaitHandle? _openSettingsSignal;
     private RegisteredWaitHandle? _openSettingsRegistration;
     private bool _stopping, _quitRequested, _preparing, _openSettingsRequested, _shuttingDown;
+    private bool _recordingPending, _cancelRecordingRequested;
     private int _recordingGeneration;
     public AppSettings Settings { get; private set; } = new();
     public bool IsRecording => _recorder.IsRecording;
@@ -312,15 +313,18 @@ public partial class App : System.Windows.Application
             StopRecordingAfterTail();
             return;
         }
+        if (_recordingPending) return;
         if (IsProcessing) { Notify(T("BusyMessage"), Forms.ToolTipIcon.Info); return; }
         try
         {
             _window?.SuspendAudioPreview();
             var settings = Settings.Copy();
             _recorder.Start(RecordingsFolder, settings.MicrophoneName, settings.Language, settings.NoiseMarginDb);
+            _recordingPending = true;
+            _cancelRecordingRequested = false;
             var generation = ++_recordingGeneration;
             _preparing = true;
-            _preparationOverlay = new ProcessingOverlay(settings, T("PreparingRecording"));
+            _preparationOverlay = new ProcessingOverlay(settings, T("PreparingRecording"), CancelRecording);
             _preparationOverlay.Show();
             _window?.SetState(true, false, T("PreparingRecording")); _window?.RefreshRecordings(force: true); UpdateTrayMenu();
             _ = CompletePreparationAsync(generation, settings);
@@ -330,6 +334,7 @@ public partial class App : System.Windows.Application
             _log?.Error("Starting recording failed", ex);
             if (_recorder.IsRecording)
             {
+                _cancelRecordingRequested = true;
                 _stopping = true;
                 try { _recorder.Stop(); } catch (NAudio.MmException) { _stopping = false; }
             }
@@ -355,6 +360,7 @@ public partial class App : System.Windows.Application
             if (settings.PlaySounds) CuePlayer.Play(true);
             _wave = new WaveformOverlay(settings, () => _recorder.Level);
             _wave.PositionSaved += SaveWaveformPosition;
+            _wave.CancelRequested += CancelRecording;
             _wave.Begin();
             _window?.SetState(true, false, null); UpdateTrayMenu();
         }
@@ -383,6 +389,14 @@ public partial class App : System.Windows.Application
         }
     }
 
+    private void CancelRecording()
+    {
+        if (!_recordingPending) return;
+        // This flag also wins if the normal stop shortcut is already waiting for its audio tail.
+        _cancelRecordingRequested = true;
+        if (!_stopping && _recorder.IsRecording) StopRecordingAfterTail();
+    }
+
     private void SaveWaveformPosition(double left, double top)
     {
         Settings.WaveformLeft = left; Settings.WaveformTop = top;
@@ -391,6 +405,9 @@ public partial class App : System.Windows.Application
 
     private void RecordingFinished(RecordingFinished result)
     {
+        var canceled = _cancelRecordingRequested;
+        _cancelRecordingRequested = false;
+        _recordingPending = false;
         _stopping = false;
         _preparing = false;
         _preparationOverlay?.Close(); _preparationOverlay = null;
@@ -398,10 +415,16 @@ public partial class App : System.Windows.Application
         _dim?.FadeOut(); _dim = null;
         _window?.ResumeAudioPreview();
         if (Settings.PlaySounds) CuePlayer.Play(false);
+        if (canceled && !result.Interrupted)
+        {
+            try { CanceledRecording.Mark(result.Path); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { _log?.Error("Saving canceled recording status failed", ex); }
+        }
         UpdateTrayMenu(); _window?.SetState(false, false, null); _window?.RefreshRecordings(force: true);
         if (result.Interrupted) _log?.Error("Recording stopped unexpectedly", result.Exception);
         if (_quitRequested) { FinishQuit(); return; }
         if (result.Interrupted) { Notify(T("RecordingError"), Forms.ToolTipIcon.Error); return; }
+        if (canceled) { Notify(T("RecordingCanceled"), Forms.ToolTipIcon.Info); return; }
         _ = ProcessAndDeliverAsync(result.Path);
     }
 
