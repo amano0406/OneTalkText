@@ -35,6 +35,8 @@ Closing the settings window keeps the app running in the notification area. To q
 
 ## Updates
 
+Open Settings to see the running version next to the OneTalk Text name.
+
 Starting with version 0.1.5, OneTalk Text checks GitHub Releases when you start the app. If a newer release is available, the app shows the download progress and starts the new version after updating. A GitHub account or additional update service is not required.
 
 Updates replace the executable while keeping `config.ini` and the `recordings` folder. The download is checked against GitHub's published file size and SHA-256 digest. If the check or download fails, the installed version starts; if the updated app exits before it is ready, the previous executable is restored. Opening the app again while it is already running opens Settings without interrupting a recording to update.

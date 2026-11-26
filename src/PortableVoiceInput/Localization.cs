@@ -7,6 +7,7 @@ internal static class Loc
     private static readonly Dictionary<string, (string En, string Ja)> Terms = new()
     {
         ["AppTitle"] = ("OneTalk Text", "OneTalk Text"),
+        ["InstalledVersion"] = ("Installed version", "使用中のバージョン"),
         ["Subtitle"] = ("Record locally. Transcribe once. Paste anywhere.", "録音して、まとめて文字起こし。いつもの入力欄へ。"),
         ["GeneralTab"] = ("General", "基本設定"), ["AudioTab"] = ("Audio & silence", "音声と無音"), ["RecordingsTab"] = ("Recordings", "録音一覧"),
         ["LanguageLabel"] = ("Language", "言語"),

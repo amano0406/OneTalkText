@@ -10,7 +10,11 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid Margin="0,0,0,8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBlock Text="{DynamicResource AppTitle}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{DynamicResource AppTitle}" FontSize="16" FontWeight="SemiBold"/>
+                <TextBlock x:Name="VersionText" Margin="7,0,0,0" VerticalAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}" ToolTip="{DynamicResource InstalledVersion}"/>
+            </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock x:Name="StatusText" Text="{DynamicResource Ready}" Foreground="{StaticResource MutedBrush}"
                            VerticalAlignment="Center" Margin="0,0,8,0" MaxWidth="200" TextTrimming="CharacterEllipsis"/>

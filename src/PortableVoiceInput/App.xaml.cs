@@ -29,6 +29,7 @@ public partial class App : System.Windows.Application
     private bool _stopping, _quitRequested, _preparing, _openSettingsRequested, _shuttingDown;
     private bool _recordingPending, _cancelRecordingRequested;
     private int _recordingGeneration;
+    internal static Version CurrentVersion { get; } = typeof(App).Assembly.GetName().Version ?? new Version(0, 0, 0);
     public AppSettings Settings { get; private set; } = new();
     public bool IsRecording => _recorder.IsRecording;
     public bool IsPreparing => _preparing;
@@ -152,8 +153,7 @@ public partial class App : System.Windows.Application
             var client = new GitHubUpdateClient(http);
             using var check = CancellationTokenSource.CreateLinkedTokenSource(_startupCancellation.Token);
             check.CancelAfter(TimeSpan.FromSeconds(6));
-            var current = typeof(App).Assembly.GetName().Version ?? new Version(0, 0);
-            var release = await client.CheckAsync(current, check.Token);
+            var release = await client.CheckAsync(CurrentVersion, check.Token);
             if (release is null) return (false, false);
             updateAvailable = true;
             var executable = Environment.ProcessPath ?? throw new IOException("The app executable path is unavailable.");

@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     {
         _app = app; _draft = app.Settings.Copy();
         InitializeComponent();
+        var version = App.CurrentVersion;
+        VersionText.Text = "v" + version.ToString(version.Revision > 0 ? 4 : 3);
         UpdateColumnHeaders();
         RecordingsGrid.ItemsSource = _rows;
         PopulateSettings();
